@@ -4,6 +4,7 @@ Provides:
 - Structured audit logging (JSON Lines format)
 - Compliance checking for frequency bands
 - Session tracking and cost estimation
+- Watch event logging for autonomous monitoring
 """
 
 from __future__ import annotations
@@ -12,10 +13,35 @@ import json
 import logging
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+class AuditEventType(str, Enum):
+    """Types of audit events for SDR operations."""
+
+    # Core operations
+    SCAN = "scan"
+    RECORD = "record"
+    TUNE = "tune"
+
+    # Watch events
+    WATCH_STARTED = "watch_started"
+    WATCH_STOPPED = "watch_stopped"
+    WATCH_PAUSED = "watch_paused"
+    WATCH_RESUMED = "watch_resumed"
+    BASELINE_ESTABLISHED = "baseline_established"
+    ALERT_TRIGGERED = "alert_triggered"
+    ALERT_SENT = "alert_sent"
+    ALERT_ACKNOWLEDGED = "alert_acknowledged"
+
+    # IoT discovery
+    IOT_DEVICE_DISCOVERED = "iot_device_discovered"
+    IOT_SCAN_STARTED = "iot_scan_started"
+    IOT_SCAN_STOPPED = "iot_scan_stopped"
 
 
 # US Legal Frequency Bands (receive-only, no license required)
@@ -245,6 +271,80 @@ class AuditLogger:
 
         # Return most recent first
         return entries[-limit:][::-1]
+
+    def log_watch_event(
+        self,
+        event_type: AuditEventType,
+        watch_id: str,
+        details: dict[str, Any] | None = None,
+    ) -> AuditEntry:
+        """Log a spectrum watch event.
+
+        Args:
+            event_type: Type of watch event.
+            watch_id: ID of the watch instance.
+            details: Additional event details.
+
+        Returns:
+            The audit entry that was logged.
+        """
+        return self.log_operation(
+            adw_id=f"watch_{watch_id}",
+            operation=event_type.value,
+            params=details or {},
+        )
+
+    def log_alert(
+        self,
+        watch_id: str,
+        alert_id: str,
+        condition_type: str,
+        frequency_hz: float,
+        power_db: float,
+        message: str,
+        notified: bool = False,
+    ) -> AuditEntry:
+        """Log an alert event.
+
+        Args:
+            watch_id: ID of the watch that triggered the alert.
+            alert_id: Unique alert ID.
+            condition_type: Type of condition that triggered.
+            frequency_hz: Frequency where alert occurred.
+            power_db: Power level at alert.
+            message: Alert message.
+            notified: Whether notification was sent.
+
+        Returns:
+            The audit entry.
+        """
+        return self.log_operation(
+            adw_id=f"watch_{watch_id}",
+            operation=AuditEventType.ALERT_TRIGGERED.value,
+            params={
+                "alert_id": alert_id,
+                "condition_type": condition_type,
+                "frequency_mhz": frequency_hz / 1e6,
+                "power_db": power_db,
+                "message": message,
+                "notified": notified,
+            },
+        )
+
+
+def is_frequency_legal(freq_hz: float) -> tuple[bool, str]:
+    """Check if a frequency is in a legal receive band.
+
+    Convenience function for frequency compliance checking.
+
+    Args:
+        freq_hz: Frequency in Hz.
+
+    Returns:
+        Tuple of (is_legal, band_name_or_warning).
+    """
+    checker = ComplianceChecker()
+    return checker.check_frequency(freq_hz / 1e6)
 
 
 class ComplianceChecker:

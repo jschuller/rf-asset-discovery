@@ -24,6 +24,11 @@ storage = [
     "duckdb>=1.0.0",
     "pyarrow>=14.0.0",
 ]
+watch = [
+    "pydantic>=2.0.0",
+    "httpx>=0.25.0",
+    "rich>=13.0",
+]
 dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
@@ -32,7 +37,7 @@ dev = [
     "duckdb>=1.0.0",
 ]
 all = [
-    "sdr-toolkit[plot,agent,adsb,ui,storage,dev]",
+    "sdr-toolkit[plot,agent,adsb,ui,storage,watch,dev]",
 ]
 
 [project.scripts]
@@ -41,6 +46,7 @@ sdr-am = "sdr_toolkit.cli.main:am_radio"
 sdr-scan = "sdr_toolkit.cli.main:scanner"
 sdr-record = "sdr_toolkit.cli.main:recorder"
 sdr-iot = "sdr_toolkit.cli.main:iot_scan"
+sdr-watch = "sdr_toolkit.cli.main:spectrum_watch"
 
 [build-system]
 requires = ["hatchling"]

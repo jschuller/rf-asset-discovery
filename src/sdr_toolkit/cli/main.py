@@ -654,6 +654,168 @@ def iot_scan() -> None:
             print(f"Results stored in: {args.db}")
 
 
+def spectrum_watch() -> None:
+    """Spectrum Watch CLI entry point."""
+    parser = argparse.ArgumentParser(
+        description="Spectrum Watch - Autonomous monitoring with alerts"
+    )
+    parser.add_argument(
+        "intent",
+        nargs="?",
+        default=None,
+        help="Natural language watch description (e.g., 'Watch aircraft band')",
+    )
+    parser.add_argument(
+        "-b",
+        "--band",
+        type=str,
+        default=None,
+        help="Predefined band: fm, aircraft, marine, amateur, weather",
+    )
+    parser.add_argument(
+        "-f",
+        "--freq",
+        type=float,
+        default=None,
+        help="Specific frequency to watch in MHz",
+    )
+    parser.add_argument(
+        "-t",
+        "--threshold",
+        type=float,
+        default=-30,
+        help="Detection threshold in dB (default: -30)",
+    )
+    parser.add_argument(
+        "--ntfy",
+        type=str,
+        default=None,
+        help="ntfy.sh topic for push notifications",
+    )
+    parser.add_argument(
+        "-i",
+        "--interval",
+        type=float,
+        default=5.0,
+        help="Scan interval in seconds (default: 5)",
+    )
+    parser.add_argument(
+        "--baseline",
+        type=float,
+        default=60.0,
+        help="Baseline duration in seconds (default: 60)",
+    )
+    parser.add_argument(
+        "--baseline-scans",
+        type=int,
+        default=12,
+        help="Number of baseline scans (default: 12)",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output",
+    )
+    parser.add_argument(
+        "--device",
+        type=int,
+        default=0,
+        help="SDR device index (default: 0)",
+    )
+
+    args = parser.parse_args()
+    setup_logging(args.verbose)
+
+    # Import watch modules
+    try:
+        import asyncio
+
+        from adws.adw_spectrum_watch import SpectrumWatch, run_watch_cli
+        from adws.adw_modules.watch_config import (
+            FrequencyBand,
+            WatchConfig,
+            AlertCondition,
+            create_watch_for_band,
+            create_watch_for_frequency,
+            parse_natural_language,
+        )
+    except ImportError as e:
+        print(
+            f"Error: Watch modules not available: {e}\n"
+            "Make sure pydantic and httpx are installed.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # Build configuration
+    config: WatchConfig | None = None
+
+    if args.intent:
+        # Natural language parsing
+        config = parse_natural_language(args.intent)
+        config.threshold_db = args.threshold
+
+    elif args.band:
+        # Predefined band
+        band_map = {
+            "fm": FrequencyBand.FM_BROADCAST,
+            "aircraft": FrequencyBand.AIRCRAFT_VHF,
+            "aviation": FrequencyBand.AIRCRAFT_VHF,
+            "marine": FrequencyBand.MARINE_VHF,
+            "amateur": FrequencyBand.AMATEUR_2M,
+            "ham": FrequencyBand.AMATEUR_2M,
+            "2m": FrequencyBand.AMATEUR_2M,
+            "70cm": FrequencyBand.AMATEUR_70CM,
+            "weather": FrequencyBand.NOAA_WEATHER,
+            "noaa": FrequencyBand.NOAA_WEATHER,
+            "adsb": FrequencyBand.ADSB,
+        }
+
+        band = band_map.get(args.band.lower())
+        if band is None:
+            print(
+                f"Error: Unknown band '{args.band}'. "
+                f"Options: {', '.join(band_map.keys())}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        config = create_watch_for_band(band, threshold_db=args.threshold)
+
+    elif args.freq:
+        # Specific frequency
+        config = create_watch_for_frequency(
+            args.freq * 1e6,
+            threshold_db=args.threshold,
+        )
+
+    else:
+        # Default to FM band
+        print("No watch target specified, defaulting to FM broadcast band")
+        config = create_watch_for_band(
+            FrequencyBand.FM_BROADCAST,
+            threshold_db=args.threshold,
+        )
+
+    # Apply common settings
+    config.scan_interval_seconds = args.interval
+    config.baseline_scans = args.baseline_scans
+
+    # Add ntfy notification if specified
+    if args.ntfy:
+        config.notifications.append(f"ntfy:{args.ntfy}")
+
+    # Run the watch
+    try:
+        asyncio.run(run_watch_cli(config, ntfy_topic=args.ntfy))
+    except KeyboardInterrupt:
+        print("\nWatch stopped")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     # Default to fm_radio if run directly
     fm_radio()

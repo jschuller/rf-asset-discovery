@@ -10,6 +10,7 @@ Production-quality RTL-SDR toolkit with unified asset storage and agentic capabi
 | **Scanning** | Spectrum analysis, peak detection, noise floor estimation |
 | **Recording** | IQ samples (SigMF), FM audio (WAV) |
 | **Decoding** | ADS-B aircraft, IoT devices (rtl_433) |
+| **Monitoring** | Autonomous spectrum watch, anomaly detection, push alerts |
 | **Storage** | DuckDB unified asset schema, Parquet export |
 | **Compliance** | NIST 800-213A, ServiceNow CMDB, ISA-95/Purdue |
 
@@ -46,6 +47,7 @@ echo "blacklist dvb_usb_rtl28xxu" | sudo tee /etc/modprobe.d/blacklist-rtlsdr.co
 | `sdr-scan` | Spectrum scanner | `sdr-scan --fm` or `-s 433 -e 435` |
 | `sdr-record` | IQ/audio recorder | `sdr-record -f 100.1 -d 30 --fm` |
 | `sdr-iot` | IoT device discovery | `sdr-iot -f 433.92M -d 300` |
+| `sdr-watch` | Autonomous monitor | `sdr-watch "Watch aircraft band" --ntfy alerts` |
 
 ## Python API
 
@@ -95,6 +97,24 @@ msg = decode_adsb_message("8D4840D6202CC371C32CE0576098")
 print(f"ICAO: {msg.icao}, Callsign: {msg.callsign}")
 ```
 
+### Autonomous Spectrum Watch
+```python
+import asyncio
+from adws import watch_from_intent
+
+async def main():
+    # Natural language configuration
+    watch = await watch_from_intent(
+        "Watch aircraft band, alert on 121.5 MHz emergency",
+        ntfy_topic="my-sdr-alerts",
+    )
+    # Runs until stopped
+    await asyncio.sleep(3600)
+    await watch.stop()
+
+asyncio.run(main())
+```
+
 ## Project Structure
 
 ```
@@ -118,7 +138,7 @@ adws/           # Agentic Developer Workflows
 |------|--------|-------------|
 | Unified Asset Schema | ✅ Implemented | DuckDB + CMDB/NIST/Purdue alignment |
 | IoT Protocol Discovery | ✅ Implemented | rtl_433 wrapper, device registry |
-| Autonomous Monitor | 📋 Planned | Claude-orchestrated spectrum watch |
+| Autonomous Monitor | ✅ Implemented | Spectrum watch, alerts, ntfy.sh |
 | TorchSig Integration | 📋 Research | ML signal classification |
 
 See `specs/README.md` for roadmap and dependencies.

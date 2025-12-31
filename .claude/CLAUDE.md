@@ -16,17 +16,17 @@ Production-quality RTL-SDR toolkit with unified asset storage and agentic capabi
 | ADS-B Decoding | ✅ Done | `decoders/adsb.py` |
 | Unified Asset Schema | ✅ Done | `storage/models.py`, `unified_db.py` |
 | IoT Protocol Discovery | ✅ Done | `decoders/iot/`, CLI `sdr-iot` |
-| Autonomous Monitor | 📋 Next | `adws/adw_spectrum_watch.py` (planned) |
+| Autonomous Monitor | ✅ Done | `adws/adw_spectrum_watch.py`, CLI `sdr-watch` |
 | TorchSig ML | ⏸️ Defer | Research complete |
 
-## Next Session: Autonomous Monitor
+## Autonomous Monitor (Sprint 7)
 
-Implement `spec-autonomous-monitor.md`:
-- `adws/adw_spectrum_watch.py` - Main SpectrumWatch class
-- `adws/adw_modules/notifier.py` - NtfyBackend, ConsoleBackend
-- `adws/adw_modules/watch_config.py` - WatchConfig, natural language parsing
+Implemented `spec-autonomous-monitor.md`:
+- `adws/adw_spectrum_watch.py` - Main SpectrumWatch class with async loop
+- `adws/adw_modules/notifier.py` - NtfyBackend, ConsoleBackend, MultiBackend
+- `adws/adw_modules/watch_config.py` - WatchConfig, AlertCondition, natural language parsing
 - `adws/adw_modules/baseline.py` - SpectrumBaseline, anomaly detection
-- CLI command `sdr-watch`
+- CLI command `sdr-watch` with natural language support
 
 ## Environment Setup
 
@@ -146,6 +146,8 @@ sdr-record -f 101.9 -d 30    # Record 30 seconds
 sdr-fm -f 101.9              # Listen to FM station
 sdr-am -f 119.1              # Aircraft band (AM)
 sdr-iot -f 433.92M -d 300    # IoT device discovery
+sdr-watch --band aircraft    # Autonomous monitoring
+sdr-watch "Watch 121.5 MHz"  # Natural language config
 ```
 
 ## IoT Discovery
@@ -174,4 +176,25 @@ with UnifiedDB("data/unified.duckdb") as db:
     auto_classify_asset(asset)  # Sets CMDB class, Purdue level, security posture
     db.insert_asset(asset)
     db.export_to_parquet("exports/")
+```
+
+## Autonomous Spectrum Watch
+
+```python
+import asyncio
+from adws import watch_from_intent, SpectrumWatch
+from adws.adw_modules import parse_natural_language, create_watch_for_band, FrequencyBand
+
+# Natural language configuration
+async def main():
+    watch = await watch_from_intent(
+        "Watch aircraft band, alert on 121.5 MHz emergency",
+        ntfy_topic="my-sdr-alerts",
+    )
+    await asyncio.sleep(3600)  # Run for 1 hour
+    await watch.stop()
+
+# Or programmatic configuration
+config = create_watch_for_band(FrequencyBand.AIRCRAFT_VHF, threshold_db=-25)
+watch = SpectrumWatch(config)
 ```
