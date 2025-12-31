@@ -134,7 +134,7 @@ class AudioPlayer:
             for i in range(frames):
                 outdata[i, 0] = self._buffer.popleft()
 
-    def __enter__(self) -> "AudioPlayer":
+    def __enter__(self) -> AudioPlayer:
         """Context manager entry."""
         self.start()
         return self

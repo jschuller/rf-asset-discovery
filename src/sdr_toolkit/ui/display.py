@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 try:
     from rich.console import Console
     from rich.panel import Panel
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+    from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
     from rich.table import Table
     from rich.text import Text
 
@@ -134,11 +134,11 @@ def display_scan_results(
 
     # Summary panel
     summary = Text()
-    summary.append(f"Scan Time: ", style="dim")
+    summary.append("Scan Time: ", style="dim")
     summary.append(f"{result.scan_time_seconds:.1f}s\n", style="cyan")
-    summary.append(f"Noise Floor: ", style="dim")
+    summary.append("Noise Floor: ", style="dim")
     summary.append(f"{result.noise_floor_db:.1f} dB\n", style="yellow")
-    summary.append(f"Signals Found: ", style="dim")
+    summary.append("Signals Found: ", style="dim")
     summary.append(f"{len(result.peaks)}", style="bold green")
 
     console.print(Panel(summary, title="[bold]Scan Results[/]", border_style="green"))

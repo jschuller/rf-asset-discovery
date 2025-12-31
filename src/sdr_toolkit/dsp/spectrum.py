@@ -197,7 +197,7 @@ def find_peaks(
 
     heights = properties.get("peak_heights", power_spectrum[peaks])
 
-    return [(int(idx), float(height)) for idx, height in zip(peaks, heights)]
+    return [(int(idx), float(height)) for idx, height in zip(peaks, heights, strict=False)]
 
 
 def estimate_noise_floor(

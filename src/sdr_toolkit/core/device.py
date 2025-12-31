@@ -11,7 +11,6 @@ import numpy as np
 
 from sdr_toolkit.core.config import (
     DEFAULT_GAIN,
-    DEFAULT_SAMPLE_RATE,
     get_platform_config,
     is_apple_silicon,
 )

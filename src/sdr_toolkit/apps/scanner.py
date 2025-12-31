@@ -17,7 +17,7 @@ from sdr_toolkit.dsp.spectrum import (
 )
 
 if TYPE_CHECKING:
-    from numpy.typing import NDArray
+    pass
 
 logger = logging.getLogger(__name__)
 

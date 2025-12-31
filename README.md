@@ -1,203 +1,142 @@
 # SDR Toolkit
 
-Production-quality RTL-SDR toolkit with agentic capabilities.
+Production-quality RTL-SDR toolkit with unified asset storage and agentic capabilities.
 
 ## Features
 
-- **FM Radio** - Listen to FM broadcast stations
-- **AM Radio** - Listen to AM signals (aircraft band 118-137 MHz)
-- **Spectrum Scanner** - Find signals across frequency ranges
-- **Signal Recorder** - Record IQ samples in SigMF format
-- **ADS-B Decoder** - Decode aircraft transponder messages
-- **Cross-Platform** - Works on macOS Apple Silicon and Linux
+| Category | Capabilities |
+|----------|--------------|
+| **Radio** | FM broadcast, AM/aircraft band (118-137 MHz) |
+| **Scanning** | Spectrum analysis, peak detection, noise floor estimation |
+| **Recording** | IQ samples (SigMF), FM audio (WAV) |
+| **Decoding** | ADS-B aircraft, IoT devices (rtl_433) |
+| **Storage** | DuckDB unified asset schema, Parquet export |
+| **Compliance** | NIST 800-213A, ServiceNow CMDB, ISA-95/Purdue |
 
 ## Installation
 
 ```bash
-# Clone the repository
-git clone https://github.com/jschuller/sdr-toolkit.git
-cd sdr-toolkit
+# Install with pip
+pip install -e ".[all]"
 
-# Install with uv (recommended)
-uv venv
-uv sync
-
-# Or with pip
-pip install -e .
+# Or specific extras
+pip install -e ".[storage,ui]"  # DuckDB + Rich terminal
 ```
 
-### Platform-Specific Setup
+### Platform Setup
 
-#### macOS (Apple Silicon)
-
+**macOS (Apple Silicon)**
 ```bash
-# Install RTL-SDR library
-brew install rtl-sdr
-
-# Set library path (add to .zshrc or use direnv)
+brew install rtl-sdr rtl_433
 export DYLD_LIBRARY_PATH="/opt/homebrew/lib:$DYLD_LIBRARY_PATH"
 ```
 
-#### Linux (Debian/ParrotOS)
-
+**Linux**
 ```bash
-# Install RTL-SDR library
-sudo apt install librtlsdr-dev
-
-# Blacklist DVB-T drivers
+sudo apt install librtlsdr-dev rtl-433
 echo "blacklist dvb_usb_rtl28xxu" | sudo tee /etc/modprobe.d/blacklist-rtlsdr.conf
-
-# Add udev rules for non-root access
-sudo cp /usr/share/doc/librtlsdr0/rtl-sdr.rules /etc/udev/rules.d/
-sudo udevadm control --reload-rules
 ```
 
-## CLI Usage
+## CLI Commands
 
-### FM Radio
-
-```bash
-# Listen to FM station
-sdr-fm -f 100.1
-
-# With custom gain and duration
-sdr-fm -f 100.1 -g 30 -d 60
-```
-
-### AM Radio (Aircraft Band)
-
-```bash
-# Listen to aircraft communications (JFK Tower default)
-sdr-am -f 119.1
-
-# Show common NYC aircraft frequencies
-sdr-am --aircraft
-
-# With custom gain
-sdr-am -f 118.7 -g 40
-```
-
-### Spectrum Scanner
-
-```bash
-# Scan FM broadcast band
-sdr-scan --fm
-
-# Scan aircraft band
-sdr-scan --aircraft
-
-# Custom frequency range
-sdr-scan -s 433 -e 435 --step 50
-
-# Show all signals (no limit)
-sdr-scan --fm --all
-
-# Plain text output (no rich formatting)
-sdr-scan --fm --plain
-```
-
-### Signal Recorder
-
-```bash
-# Record IQ samples
-sdr-record -f 100.1 -d 10 -o ./recordings
-
-# Record FM audio to WAV
-sdr-record -f 100.1 -d 30 --fm -o station.wav
-```
+| Command | Description | Example |
+|---------|-------------|---------|
+| `sdr-fm` | FM radio playback | `sdr-fm -f 100.1 -g auto` |
+| `sdr-am` | AM/aircraft band | `sdr-am -f 119.1 --aircraft` |
+| `sdr-scan` | Spectrum scanner | `sdr-scan --fm` or `-s 433 -e 435` |
+| `sdr-record` | IQ/audio recorder | `sdr-record -f 100.1 -d 30 --fm` |
+| `sdr-iot` | IoT device discovery | `sdr-iot -f 433.92M -d 300` |
 
 ## Python API
 
+### Spectrum Scanning
 ```python
-from sdr_toolkit import SDRDevice
-from sdr_toolkit.apps import FMRadio, AMRadio, SpectrumScanner
+from sdr_toolkit.apps import SpectrumScanner
 
-# FM Radio
-radio = FMRadio(freq_mhz=100.1)
-radio.play(duration=30)
-
-# AM Radio (aircraft band)
-am = AMRadio(freq_mhz=119.1)
-am.play(duration=60)
-
-# Spectrum Scanner
-scanner = SpectrumScanner()
+scanner = SpectrumScanner(threshold_db=-30)
 result = scanner.scan_fm_band()
-for peak in result.peaks:
+for peak in result.peaks[:5]:
     print(f"{peak.frequency_hz/1e6:.1f} MHz: {peak.power_db:.1f} dB")
-
-# Direct device access
-with SDRDevice(center_freq=100.1e6) as sdr:
-    samples = sdr.read_samples(1024)
 ```
 
-## ADS-B Decoding
-
+### IoT Device Discovery
 ```python
-from sdr_toolkit.decoders import decode_adsb_message, is_valid_adsb
+from sdr_toolkit.decoders.iot import RTL433Decoder, DeviceRegistry
 
-# Decode ADS-B message (hex string)
-msg = "8D4840D6202CC371C32CE0576098"
-if is_valid_adsb(msg):
-    decoded = decode_adsb_message(msg)
-    print(f"ICAO: {decoded.icao}")
-    print(f"Callsign: {decoded.callsign}")
+registry = DeviceRegistry()
+with RTL433Decoder(frequencies=["433.92M"]) as decoder:
+    for packet in decoder.stream_packets():
+        device = registry.process_packet(packet)
+        print(f"{device.model}: {device.protocol_type.value}")
 ```
 
-## SigMF Recordings
-
+### Unified Asset Storage
 ```python
-from sdr_toolkit.io import SigMFRecording
+from sdr_toolkit.storage import UnifiedDB, Asset, RFProtocol, auto_classify_asset
 
-# Create recording
-recording = SigMFRecording.create(
-    samples=iq_samples,
-    sample_rate=1.024e6,
-    center_freq=100.1e6,
-    output_dir="./recordings",
-)
+with UnifiedDB("data/unified.duckdb") as db:
+    asset = Asset(
+        name="Weather Station",
+        rf_frequency_hz=433.92e6,
+        rf_protocol=RFProtocol.WEATHER_STATION,
+    )
+    auto_classify_asset(asset)  # Sets CMDB class, Purdue level
+    db.insert_asset(asset)
 
-# Load recording
-loaded = SigMFRecording.load("./recordings/recording_20240101.sigmf-meta")
-samples = loaded.to_numpy()
+    # Export for analysis
+    db.export_to_parquet("exports/")
 ```
 
-## Agentic Workflows
+### ADS-B Decoding
+```python
+from sdr_toolkit.decoders import decode_adsb_message
 
-See `adws/README.md` for Claude Code integration. Workflows enable autonomous spectrum scanning, recording, and analysis with built-in compliance awareness.
+msg = decode_adsb_message("8D4840D6202CC371C32CE0576098")
+print(f"ICAO: {msg.icao}, Callsign: {msg.callsign}")
+```
+
+## Project Structure
+
+```
+src/sdr_toolkit/
+├── core/       # Device abstraction, config, exceptions
+├── dsp/        # FFT, demodulation, filters
+├── io/         # SigMF, audio I/O
+├── apps/       # FM, AM, scanner, recorder
+├── decoders/   # ADS-B, IoT (rtl_433)
+├── storage/    # DuckDB unified schema
+├── ui/         # Rich terminal display
+└── cli/        # Command-line interface
+
+specs/          # Implementation specifications
+adws/           # Agentic Developer Workflows
+```
+
+## Specifications
+
+| Spec | Status | Description |
+|------|--------|-------------|
+| Unified Asset Schema | ✅ Implemented | DuckDB + CMDB/NIST/Purdue alignment |
+| IoT Protocol Discovery | ✅ Implemented | rtl_433 wrapper, device registry |
+| Autonomous Monitor | 📋 Planned | Claude-orchestrated spectrum watch |
+| TorchSig Integration | 📋 Research | ML signal classification |
+
+See `specs/README.md` for roadmap and dependencies.
 
 ## Development
 
 ```bash
 # Install dev dependencies
-uv sync --extra dev
+pip install -e ".[dev]"
 
-# Run tests
-pytest
+# Run tests (195 tests)
+DYLD_LIBRARY_PATH=/opt/homebrew/lib pytest
 
 # Type checking
 mypy src/
 
 # Linting
 ruff check src/
-```
-
-## Project Structure
-
-```
-sdr-toolkit/
-├── src/sdr_toolkit/
-│   ├── core/         # Device, config, exceptions
-│   ├── dsp/          # Spectrum, demodulation, filters
-│   ├── io/           # Audio, SigMF, recording
-│   ├── apps/         # FM radio, AM radio, scanner, recorder
-│   ├── decoders/     # ADS-B decoder
-│   ├── ui/           # Rich terminal display
-│   └── cli/          # Command-line interface
-├── adws/             # Agentic Developer Workflows
-├── ai_docs/          # AI/ML research documentation
-├── tests/            # Unit tests
-└── examples/         # Usage examples
 ```
 
 ## License

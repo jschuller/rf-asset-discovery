@@ -7,8 +7,6 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-import numpy as np
-
 from sdr_toolkit.core.config import (
     APPLE_SILICON_SAMPLE_RATE,
     FM_AUDIO_RATE,

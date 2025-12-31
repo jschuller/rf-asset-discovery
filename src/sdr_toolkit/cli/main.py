@@ -441,6 +441,219 @@ def recorder() -> None:
         sys.exit(1)
 
 
+def iot_scan() -> None:
+    """IoT Device Scanner CLI entry point."""
+    parser = argparse.ArgumentParser(
+        description="IoT Scanner - Discover IoT devices using rtl_433"
+    )
+    parser.add_argument(
+        "-f",
+        "--freq",
+        type=str,
+        action="append",
+        default=None,
+        help="Frequency to scan (e.g., 433.92M). Can specify multiple.",
+    )
+    parser.add_argument(
+        "-d",
+        "--duration",
+        type=int,
+        default=0,
+        help="Duration in seconds (default: 0 = indefinite)",
+    )
+    parser.add_argument(
+        "-H",
+        "--hop",
+        type=int,
+        default=30,
+        help="Frequency hop time in seconds (default: 30)",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        type=str,
+        default=None,
+        help="Save device registry to JSON file",
+    )
+    parser.add_argument(
+        "--db",
+        type=str,
+        default=None,
+        help="Store discoveries in UnifiedDB",
+    )
+    parser.add_argument(
+        "-g",
+        "--gain",
+        type=str,
+        default="auto",
+        help="Gain in dB or 'auto' (default: auto)",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Show all decoded packets",
+    )
+    parser.add_argument(
+        "--device",
+        type=int,
+        default=0,
+        help="SDR device index (default: 0)",
+    )
+    parser.add_argument(
+        "--plain",
+        action="store_true",
+        help="Use plain text output (no rich formatting)",
+    )
+
+    args = parser.parse_args()
+    setup_logging(args.verbose)
+
+    # Import IoT modules
+    try:
+        from sdr_toolkit.decoders.iot import (
+            DeviceRegistry,
+            RTL433Decoder,
+            RTL433Error,
+            check_rtl433_available,
+        )
+    except ImportError as e:
+        print(f"Error: IoT module not available: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Check rtl_433 availability
+    if not check_rtl433_available():
+        print(
+            "Error: rtl_433 not found. Install with:\n"
+            "  macOS: brew install rtl_433\n"
+            "  Linux: apt install rtl-433",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # Default frequencies
+    frequencies = args.freq or ["433.92M"]
+
+    # Parse gain
+    gain: str | int
+    if args.gain == "auto":
+        gain = "auto"
+    else:
+        try:
+            gain = int(args.gain)
+        except ValueError:
+            print(f"Error: Invalid gain value: {args.gain}", file=sys.stderr)
+            sys.exit(1)
+
+    # Setup database if requested
+    db = None
+    if args.db:
+        try:
+            from pathlib import Path
+
+            from sdr_toolkit.storage import UnifiedDB
+
+            db = UnifiedDB(Path(args.db))
+            db.connect()
+        except Exception as e:
+            print(f"Warning: Could not open database: {e}", file=sys.stderr)
+
+    # Create registry
+    registry = DeviceRegistry(db=db)
+    if db:
+        scan_id = db.start_scan_session("iot", {"frequencies": frequencies})
+        registry.set_scan_id(scan_id)
+
+    print(f"IoT Scanner - Monitoring {', '.join(frequencies)}")
+    print("Press Ctrl+C to stop\n")
+
+    try:
+        with RTL433Decoder(
+            frequencies=frequencies,
+            hop_time_seconds=args.hop,
+            device_index=args.device,
+            gain=gain,
+        ) as decoder:
+            import time
+
+            start_time = time.time()
+            last_summary = start_time
+
+            for packet in decoder.stream_packets():
+                device = registry.process_packet(packet)
+
+                if args.verbose:
+                    print(
+                        f"[{packet.protocol_type.value}] {device.model} "
+                        f"({device.device_id}) - packets: {device.packet_count}"
+                    )
+
+                # Print summary every 10 seconds
+                if time.time() - last_summary >= 10:
+                    stats = registry.get_stats()
+                    print(
+                        f"\n--- Devices: {stats['total_devices']} | "
+                        f"Packets: {stats['total_packets']} ---\n"
+                    )
+                    last_summary = time.time()
+
+                # Check duration
+                if args.duration > 0 and time.time() - start_time >= args.duration:
+                    print(f"\nDuration ({args.duration}s) reached.")
+                    break
+
+    except RTL433Error as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print("\nStopped")
+    finally:
+        # Print final summary
+        print("\n" + "=" * 50)
+        print("IoT Scan Summary")
+        print("=" * 50)
+
+        stats = registry.get_stats()
+        print(f"Total devices: {stats['total_devices']}")
+        print(f"Total packets: {stats['total_packets']}")
+
+        if stats["devices_by_protocol"]:
+            print("\nBy protocol:")
+            for proto, count in stats["devices_by_protocol"].items():
+                print(f"  {proto}: {count}")
+
+        devices = registry.get_all_devices()
+        if devices:
+            print("\nDiscovered devices:")
+            print("-" * 50)
+            for device in devices[:20]:
+                print(
+                    f"  {device.model} ({device.device_id})\n"
+                    f"    Protocol: {device.protocol_type.value}\n"
+                    f"    Packets: {device.packet_count}"
+                )
+                if device.last_temperature_c is not None:
+                    print(f"    Temp: {device.last_temperature_c:.1f}C")
+                if device.last_humidity_pct is not None:
+                    print(f"    Humidity: {device.last_humidity_pct:.0f}%")
+
+            if len(devices) > 20:
+                print(f"  ... and {len(devices) - 20} more")
+
+        # Save output if requested
+        if args.output:
+            from pathlib import Path
+
+            registry.to_json(Path(args.output))
+            print(f"\nDevices saved to: {args.output}")
+
+        # Close database
+        if db:
+            db.end_scan_session(scan_id, stats)
+            db.close()
+            print(f"Results stored in: {args.db}")
+
+
 if __name__ == "__main__":
     # Default to fm_radio if run directly
     fm_radio()

@@ -25,8 +25,8 @@ from datetime import datetime
 from pathlib import Path
 
 from sdr_toolkit.apps.recorder import SignalRecorder
-from sdr_toolkit.io.sigmf import SigMFRecording
 from sdr_toolkit.dsp.spectrum import compute_power_spectrum_hz, estimate_noise_floor
+from sdr_toolkit.io.sigmf import SigMFRecording
 
 
 def main() -> int:

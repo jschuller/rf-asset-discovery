@@ -108,7 +108,7 @@ class SigMFRecording:
         basename: str | None = None,
         description: str = "",
         datatype: SigMFDataType = "cf32_le",
-    ) -> "SigMFRecording":
+    ) -> SigMFRecording:
         """Create a new SigMF recording.
 
         Args:
@@ -165,7 +165,7 @@ class SigMFRecording:
         return recording
 
     @classmethod
-    def load(cls, path: Path | str) -> "SigMFRecording":
+    def load(cls, path: Path | str) -> SigMFRecording:
         """Load a SigMF recording.
 
         Args:

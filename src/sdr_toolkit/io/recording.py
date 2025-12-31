@@ -35,7 +35,7 @@ class IQRecording:
     metadata: dict[str, object] = field(default_factory=dict)
 
     @classmethod
-    def from_file(cls, path: Path | str) -> "IQRecording":
+    def from_file(cls, path: Path | str) -> IQRecording:
         """Load recording from numpy file.
 
         Args:

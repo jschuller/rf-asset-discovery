@@ -20,14 +20,19 @@ plot = ["matplotlib>=3.7.0"]
 agent = ["pydantic>=2.0.0"]
 adsb = ["pyModeS>=2.0"]
 ui = ["rich>=13.0"]
+storage = [
+    "duckdb>=1.0.0",
+    "pyarrow>=14.0.0",
+]
 dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
     "mypy>=1.5.0",
     "ruff>=0.1.0",
+    "duckdb>=1.0.0",
 ]
 all = [
-    "sdr-toolkit[plot,agent,adsb,ui,dev]",
+    "sdr-toolkit[plot,agent,adsb,ui,storage,dev]",
 ]
 
 [project.scripts]
@@ -35,6 +40,7 @@ sdr-fm = "sdr_toolkit.cli.main:fm_radio"
 sdr-am = "sdr_toolkit.cli.main:am_radio"
 sdr-scan = "sdr_toolkit.cli.main:scanner"
 sdr-record = "sdr_toolkit.cli.main:recorder"
+sdr-iot = "sdr_toolkit.cli.main:iot_scan"
 
 [build-system]
 requires = ["hatchling"]

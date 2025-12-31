@@ -4,9 +4,29 @@ Project-specific instructions for Claude Code when working with sdr-toolkit.
 
 ## Project Overview
 
-Production-quality RTL-SDR toolkit for spectrum scanning, signal recording, and FM demodulation.
+Production-quality RTL-SDR toolkit with unified asset storage and agentic capabilities.
 
 **Location:** `~/construction-mcp/sdr-toolkit/`
+
+## Implementation Status
+
+| Component | Status | Key Files |
+|-----------|--------|-----------|
+| Core (FM/AM/scanner/recorder) | ✅ Done | `apps/`, `dsp/`, `io/` |
+| ADS-B Decoding | ✅ Done | `decoders/adsb.py` |
+| Unified Asset Schema | ✅ Done | `storage/models.py`, `unified_db.py` |
+| IoT Protocol Discovery | ✅ Done | `decoders/iot/`, CLI `sdr-iot` |
+| Autonomous Monitor | 📋 Next | `adws/adw_spectrum_watch.py` (planned) |
+| TorchSig ML | ⏸️ Defer | Research complete |
+
+## Next Session: Autonomous Monitor
+
+Implement `spec-autonomous-monitor.md`:
+- `adws/adw_spectrum_watch.py` - Main SpectrumWatch class
+- `adws/adw_modules/notifier.py` - NtfyBackend, ConsoleBackend
+- `adws/adw_modules/watch_config.py` - WatchConfig, natural language parsing
+- `adws/adw_modules/baseline.py` - SpectrumBaseline, anomaly detection
+- CLI command `sdr-watch`
 
 ## Environment Setup
 
@@ -48,6 +68,9 @@ Common attributes:
 - `ScanResult`: `peaks`, `noise_floor_db`, `scan_time_seconds`
 - `SignalPeak`: `frequency_hz` (not `freq_mhz`), `power_db`
 - `RecordingResult`: `path` (not `file_path`)
+- `Asset`: `rf_protocol`, `cmdb_ci_class`, `purdue_level`, `security_posture`
+- `IoTDevice`: `device_id`, `protocol_type`, `to_asset()`, `to_dict()`
+- `IoTPacket`: `model`, `device_id`, `to_rf_capture()`
 
 ### Standard Recording Location
 
@@ -121,4 +144,34 @@ DYLD_LIBRARY_PATH=/opt/homebrew/lib pytest tests/ -v
 sdr-scan -s 87.5 -e 108.0    # Scan FM band
 sdr-record -f 101.9 -d 30    # Record 30 seconds
 sdr-fm -f 101.9              # Listen to FM station
+sdr-am -f 119.1              # Aircraft band (AM)
+sdr-iot -f 433.92M -d 300    # IoT device discovery
+```
+
+## IoT Discovery
+
+```python
+from sdr_toolkit.decoders.iot import RTL433Decoder, DeviceRegistry
+
+registry = DeviceRegistry()
+with RTL433Decoder(frequencies=["433.92M"]) as decoder:
+    for packet in decoder.stream_packets():
+        device = registry.process_packet(packet)
+        print(f"{device.model}: {device.protocol_type.value}")
+
+# Save registry and sync to unified database
+registry.to_json(Path("devices.json"))
+registry.sync_to_db(db)
+```
+
+## Unified Asset Storage
+
+```python
+from sdr_toolkit.storage import UnifiedDB, Asset, RFProtocol, auto_classify_asset
+
+with UnifiedDB("data/unified.duckdb") as db:
+    asset = Asset(name="Weather Station", rf_frequency_hz=433.92e6, rf_protocol=RFProtocol.WEATHER_STATION)
+    auto_classify_asset(asset)  # Sets CMDB class, Purdue level, security posture
+    db.insert_asset(asset)
+    db.export_to_parquet("exports/")
 ```

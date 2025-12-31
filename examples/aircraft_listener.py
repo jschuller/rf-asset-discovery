@@ -112,7 +112,7 @@ def main() -> int:
             freq_name = name
             break
 
-    print(f"Aircraft Band Listener")
+    print("Aircraft Band Listener")
     print(f"Frequency: {args.freq} MHz", end="")
     if freq_name:
         print(f" ({freq_name})")
