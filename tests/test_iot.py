@@ -200,13 +200,14 @@ class TestIoTPacket:
         assert result["protocol_type"] == "weather_station"
         assert result["temperature_c"] == 22.5
 
-    def test_packet_to_rf_capture(self, sample_packet: IoTPacket) -> None:
-        """to_rf_capture should create valid RFCapture."""
-        capture = sample_packet.to_rf_capture("scan-123")
-        assert capture.scan_id == "scan-123"
-        assert capture.frequency_hz == 433.92e6
-        assert capture.rf_protocol == RFProtocol.WEATHER_STATION
-        assert capture.annotations["iot_model"] == "Acurite-Tower"
+    def test_packet_to_signal(self, sample_packet: IoTPacket) -> None:
+        """to_signal should create valid Signal."""
+        signal = sample_packet.to_signal(survey_id="survey-123", scan_id="scan-123")
+        assert signal.survey_id == "survey-123"
+        assert signal.scan_id == "scan-123"
+        assert signal.frequency_hz == 433.92e6
+        assert signal.rf_protocol == RFProtocol.WEATHER_STATION
+        assert signal.annotations["iot_model"] == "Acurite-Tower"
 
 
 # ============================================================================

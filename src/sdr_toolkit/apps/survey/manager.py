@@ -12,13 +12,18 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+import socket
+
 from sdr_toolkit.storage.survey_models import (
     SegmentStatus,
-    SignalState,
     SpectrumSurvey,
     SurveySegment,
-    SurveySignal,
     SurveyStatus,
+)
+from sdr_toolkit.storage.models import (
+    Signal,
+    SignalState,
+    derive_freq_band,
 )
 from sdr_toolkit.apps.survey.band_catalog import (
     RTL_SDR_MIN_HZ,
@@ -186,6 +191,58 @@ class SurveyManager:
             name,
             len(segments),
             format_duration(estimate_survey_duration(segments)),
+        )
+
+        return survey
+
+    def create_adhoc_survey(
+        self,
+        name: str,
+        start_hz: float,
+        end_hz: float,
+        location_name: str | None = None,
+    ) -> SpectrumSurvey:
+        """Create single-segment survey for ad-hoc scan.
+
+        Ad-hoc surveys have:
+        - Single segment covering the specified range
+        - Auto-generated location from hostname if not provided
+        - metadata["adhoc"] = True marker
+
+        Args:
+            name: Survey name (e.g., "Scan FM 2025-12-31 14:30").
+            start_hz: Start frequency in Hz.
+            end_hz: End frequency in Hz.
+            location_name: Location name (defaults to hostname).
+
+        Returns:
+            Created SpectrumSurvey ready for execution.
+        """
+        # Default location to hostname
+        if not location_name:
+            location_name = socket.gethostname() or "default"
+
+        survey = self.create_survey(
+            name=name,
+            start_hz=start_hz,
+            end_hz=end_hz,
+            full_coverage=False,  # Single segment only
+            location_name=location_name,
+        )
+
+        # Mark as ad-hoc in metadata
+        survey.config["adhoc"] = True
+        self.db.conn.execute(
+            "UPDATE spectrum_surveys SET config = ? WHERE survey_id = ?",
+            [json.dumps(survey.config), survey.survey_id],
+        )
+
+        logger.info(
+            "Created ad-hoc survey '%s' at %s (%.1f-%.1f MHz)",
+            name,
+            location_name,
+            start_hz / 1e6,
+            end_hz / 1e6,
         )
 
         return survey
@@ -549,30 +606,43 @@ class SurveyManager:
     def record_signal(
         self,
         survey_id: str,
-        segment_id: str,
+        segment_id: str | None,
         frequency_hz: float,
         power_db: float,
         bandwidth_hz: float | None = None,
-    ) -> SurveySignal:
-        """Record a detected signal.
+        scan_id: str | None = None,
+        location_name: str | None = None,
+    ) -> Signal:
+        """Record a detected signal to unified signals table.
 
         If a signal at this frequency already exists, updates the detection
         count instead of creating a duplicate.
 
         Args:
             survey_id: Parent survey ID.
-            segment_id: Segment where detected.
+            segment_id: Segment where detected (optional).
             frequency_hz: Signal frequency.
             power_db: Signal power.
             bandwidth_hz: Estimated bandwidth.
+            scan_id: Optional scan session ID.
+            location_name: Location name (defaults from survey or hostname).
 
         Returns:
-            Created or updated SurveySignal.
+            Created or updated Signal.
         """
+        # Get location from survey if not provided
+        if not location_name:
+            survey = self.get_survey(survey_id)
+            location_name = survey.location_name if survey else None
+        if not location_name:
+            location_name = socket.gethostname() or "default"
+
+        now = datetime.now()
+
         # Check for existing signal at this frequency (within 50 kHz)
         existing = self.db.conn.execute(
             """
-            SELECT * FROM survey_signals
+            SELECT signal_id, detection_count, power_db FROM signals
             WHERE survey_id = ?
               AND ABS(frequency_hz - ?) < 50000
             LIMIT 1
@@ -580,17 +650,15 @@ class SurveyManager:
             [survey_id, frequency_hz],
         ).fetchone()
 
-        now = datetime.now()
-
         if existing:
             # Update existing signal
-            signal_id = existing[0]  # signal_id is first column
-            new_count = existing[10] + 1  # detection_count
-            new_power = max(existing[4], power_db)  # power_db
+            signal_id = existing[0]
+            new_count = existing[1] + 1
+            new_power = max(existing[2], power_db)
 
             self.db.conn.execute(
                 """
-                UPDATE survey_signals
+                UPDATE signals
                 SET last_seen = ?,
                     detection_count = ?,
                     power_db = ?
@@ -601,51 +669,51 @@ class SurveyManager:
 
             return self.get_signal(signal_id)  # type: ignore
         else:
-            # Create new signal
-            signal = SurveySignal(
-                survey_id=survey_id,
-                segment_id=segment_id,
-                frequency_hz=frequency_hz,
-                power_db=power_db,
-                bandwidth_hz=bandwidth_hz,
-                first_seen=now,
-                last_seen=now,
-            )
+            # Create new signal with derived fields
+            signal_id = str(uuid4())
+            freq_band = derive_freq_band(frequency_hz)
 
             self.db.conn.execute(
                 """
-                INSERT INTO survey_signals (
-                    signal_id, survey_id, segment_id, frequency_hz, power_db,
-                    bandwidth_hz, first_seen, last_seen, detection_count, state
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO signals (
+                    signal_id, frequency_hz, power_db, bandwidth_hz, freq_band,
+                    first_seen, last_seen, detection_count, state,
+                    survey_id, segment_id, scan_id,
+                    location_name, year, month
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
-                    signal.signal_id,
-                    signal.survey_id,
-                    signal.segment_id,
-                    signal.frequency_hz,
-                    signal.power_db,
-                    signal.bandwidth_hz,
-                    signal.first_seen,
-                    signal.last_seen,
-                    signal.detection_count,
-                    signal.state.value,
+                    signal_id,
+                    frequency_hz,
+                    power_db,
+                    bandwidth_hz,
+                    freq_band,
+                    now,
+                    now,
+                    1,  # detection_count
+                    SignalState.DISCOVERED.value,
+                    survey_id,
+                    segment_id,
+                    scan_id,
+                    location_name,
+                    now.year,
+                    now.month,
                 ],
             )
 
-            return signal
+            return self.get_signal(signal_id)  # type: ignore
 
-    def get_signal(self, signal_id: str) -> SurveySignal | None:
+    def get_signal(self, signal_id: str) -> Signal | None:
         """Get signal by ID.
 
         Args:
             signal_id: Signal ID to retrieve.
 
         Returns:
-            SurveySignal if found, None otherwise.
+            Signal if found, None otherwise.
         """
         result = self.db.conn.execute(
-            "SELECT * FROM survey_signals WHERE signal_id = ?",
+            "SELECT * FROM signals WHERE signal_id = ?",
             [signal_id],
         ).fetchone()
 
@@ -659,7 +727,7 @@ class SurveyManager:
         survey_id: str,
         state: SignalState | None = None,
         min_detections: int = 1,
-    ) -> list[SurveySignal]:
+    ) -> list[Signal]:
         """Get signals for a survey.
 
         Args:
@@ -668,12 +736,12 @@ class SurveyManager:
             min_detections: Minimum detection count.
 
         Returns:
-            List of SurveySignal objects.
+            List of Signal objects.
         """
         if state:
             results = self.db.conn.execute(
                 """
-                SELECT * FROM survey_signals
+                SELECT * FROM signals
                 WHERE survey_id = ?
                   AND state = ?
                   AND detection_count >= ?
@@ -684,7 +752,7 @@ class SurveyManager:
         else:
             results = self.db.conn.execute(
                 """
-                SELECT * FROM survey_signals
+                SELECT * FROM signals
                 WHERE survey_id = ?
                   AND detection_count >= ?
                 ORDER BY frequency_hz
@@ -702,7 +770,7 @@ class SurveyManager:
             state: New state.
         """
         self.db.conn.execute(
-            "UPDATE survey_signals SET state = ? WHERE signal_id = ?",
+            "UPDATE signals SET state = ? WHERE signal_id = ?",
             [state.value, signal_id],
         )
 
@@ -806,12 +874,32 @@ class SurveyManager:
 
         return SurveySegment(**data)
 
-    def _row_to_signal(self, row: tuple[Any, ...]) -> SurveySignal:
-        """Convert database row to SurveySignal."""
+    def _row_to_signal(self, row: tuple[Any, ...]) -> Signal:
+        """Convert database row to Signal."""
+        from pathlib import Path
+        from sdr_toolkit.storage.models import RFProtocol
+
         columns = [desc[0] for desc in self.db.conn.description]
         data = dict(zip(columns, row, strict=False))
 
         # Convert state enum
         data["state"] = SignalState(data["state"])
 
-        return SurveySignal(**data)
+        # Convert rf_protocol enum
+        if data.get("rf_protocol"):
+            data["rf_protocol"] = RFProtocol(data["rf_protocol"])
+        else:
+            data["rf_protocol"] = RFProtocol.UNKNOWN
+
+        # Convert sigmf_path to Path
+        if data.get("sigmf_path"):
+            data["sigmf_path"] = Path(data["sigmf_path"])
+
+        # Parse annotations JSON
+        if data.get("annotations"):
+            if isinstance(data["annotations"], str):
+                data["annotations"] = json.loads(data["annotations"])
+        else:
+            data["annotations"] = {}
+
+        return Signal(**data)

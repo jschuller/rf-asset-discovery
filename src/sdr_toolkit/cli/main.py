@@ -187,7 +187,11 @@ def am_radio() -> None:
 
 
 def scanner() -> None:
-    """Spectrum Scanner CLI entry point."""
+    """Spectrum Scanner CLI entry point.
+
+    Survey-first: All scans create ad-hoc surveys and route signals
+    through the unified signals table.
+    """
     parser = argparse.ArgumentParser(
         description="Spectrum Scanner - Find signals in frequency range"
     )
@@ -261,23 +265,19 @@ def scanner() -> None:
     parser.add_argument(
         "--db",
         type=str,
-        default=None,
-        help="Store results in UnifiedDB (e.g., data/unified.duckdb)",
+        default="data/unified.duckdb",
+        help="DuckDB path (default: data/unified.duckdb)",
     )
     parser.add_argument(
-        "--survey-id",
+        "-l",
+        "--location",
         type=str,
         default=None,
-        help="Link results to a survey (requires --db)",
+        help="Location name (default: hostname)",
     )
 
     args = parser.parse_args()
     setup_logging(args.verbose)
-
-    # Validate survey-id requires db
-    if args.survey_id and not args.db:
-        print("Error: --survey-id requires --db", file=sys.stderr)
-        sys.exit(1)
 
     # Try to use rich display
     use_rich = not args.plain
@@ -321,52 +321,33 @@ def scanner() -> None:
         else:
             print(f"Scanning {start_freq} - {end_freq} MHz...")
 
-    # Setup database if requested
-    db = None
+    # Survey-first: Setup database and create ad-hoc survey
+    from datetime import datetime
+    from pathlib import Path
+
+    from sdr_toolkit.storage import UnifiedDB
+    from sdr_toolkit.apps.survey.manager import SurveyManager
+
+    db_path = Path(args.db)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
     scan_id = None
-    if args.db:
-        try:
-            from pathlib import Path
-
-            from sdr_toolkit.storage import UnifiedDB
-
-            db = UnifiedDB(Path(args.db))
-            db.connect()
-        except Exception as e:
-            print(f"Warning: Could not open database: {e}", file=sys.stderr)
+    survey = None
 
     try:
-        scanner_instance = SpectrumScanner(
-            gain=gain,
-            threshold_db=args.threshold,
-            device_index=args.device,
-        )
+        with UnifiedDB(db_path) as db:
+            manager = SurveyManager(db)
 
-        result = scanner_instance.scan(
-            start_freq * 1e6,
-            end_freq * 1e6,
-            step_hz=args.step * 1e3,
-        )
+            # Create ad-hoc survey for this scan
+            survey_name = f"Scan {band_name or 'custom'} {datetime.now():%Y%m%d_%H%M}"
+            survey = manager.create_adhoc_survey(
+                name=survey_name,
+                start_hz=start_freq * 1e6,
+                end_hz=end_freq * 1e6,
+                location_name=args.location,
+            )
 
-        if use_rich:
-            display_scan_results(result, show_all=args.show_all)
-        else:
-            print(f"\nScan completed in {result.scan_time_seconds:.1f} seconds")
-            print(f"Noise floor: {result.noise_floor_db:.1f} dB")
-            print(f"Signals found: {len(result.peaks)}\n")
-
-            if result.peaks:
-                print("Detected signals:")
-                print("-" * 40)
-                for peak in result.peaks[:20]:  # Show top 20
-                    print(f"  {peak.frequency_hz/1e6:8.3f} MHz : {peak.power_db:6.1f} dB")
-                if len(result.peaks) > 20:
-                    print(f"  ... and {len(result.peaks) - 20} more")
-
-        # Store results in database if requested
-        if db:
-            from sdr_toolkit.storage.models import RFCapture
-
+            # Start scan session for audit trail
             scan_id = db.start_scan_session(
                 "rf_spectrum",
                 {
@@ -376,24 +357,63 @@ def scanner() -> None:
                     "threshold_db": args.threshold,
                     "gain": str(gain),
                     "band_name": band_name,
-                    "survey_id": args.survey_id,
+                    "survey_id": survey.survey_id,
                 },
             )
 
-            # Record each peak as RF capture
+            # Get the segment
+            segment = manager.get_next_segment(survey.survey_id)
+            if segment:
+                manager.start_segment(segment.segment_id, scan_id)
+
+            # Execute scan
+            scanner_instance = SpectrumScanner(
+                gain=gain,
+                threshold_db=args.threshold,
+                device_index=args.device,
+            )
+
+            result = scanner_instance.scan(
+                start_freq * 1e6,
+                end_freq * 1e6,
+                step_hz=args.step * 1e3,
+            )
+
+            if use_rich:
+                display_scan_results(result, show_all=args.show_all)
+            else:
+                print(f"\nScan completed in {result.scan_time_seconds:.1f} seconds")
+                print(f"Noise floor: {result.noise_floor_db:.1f} dB")
+                print(f"Signals found: {len(result.peaks)}\n")
+
+                if result.peaks:
+                    print("Detected signals:")
+                    print("-" * 40)
+                    for peak in result.peaks[:20]:  # Show top 20
+                        print(f"  {peak.frequency_hz/1e6:8.3f} MHz : {peak.power_db:6.1f} dB")
+                    if len(result.peaks) > 20:
+                        print(f"  ... and {len(result.peaks) - 20} more")
+
+            # Record signals to unified signals table
             for peak in result.peaks:
-                capture = RFCapture(
-                    scan_id=scan_id,
+                manager.record_signal(
+                    survey_id=survey.survey_id,
+                    segment_id=segment.segment_id if segment else None,
                     frequency_hz=peak.frequency_hz,
                     power_db=peak.power_db,
-                    annotations={
-                        "noise_floor_db": result.noise_floor_db,
-                        "snr_db": peak.power_db - result.noise_floor_db,
-                    },
+                    scan_id=scan_id,
                 )
-                db.record_rf_capture(capture)
 
-            # End session with summary
+            # Complete segment and survey
+            if segment:
+                manager.complete_segment(
+                    segment.segment_id,
+                    signals_found=len(result.peaks),
+                    noise_floor_db=result.noise_floor_db,
+                    scan_time_seconds=result.scan_time_seconds,
+                )
+
+            # End scan session
             db.end_scan_session(
                 scan_id,
                 {
@@ -402,25 +422,24 @@ def scanner() -> None:
                     "scan_time_seconds": result.scan_time_seconds,
                 },
             )
+
             print(f"\nResults stored in: {args.db}")
-            print(f"  Scan ID: {scan_id}")
-            print(f"  Captures: {len(result.peaks)}")
+            print(f"  Survey ID: {survey.survey_id}")
+            print(f"  Signals: {len(result.peaks)}")
 
     except KeyboardInterrupt:
         print("\nScan cancelled")
-        # Still end session if interrupted
-        if db and scan_id:
-            db.end_scan_session(scan_id, {"status": "cancelled"})
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
-    finally:
-        if db:
-            db.close()
 
 
 def recorder() -> None:
-    """Signal Recorder CLI entry point."""
+    """Signal Recorder CLI entry point.
+
+    Survey-first: All recordings create ad-hoc surveys and route signals
+    through the unified signals table with SigMF path linking.
+    """
     parser = argparse.ArgumentParser(
         description="Signal Recorder - Record IQ samples or FM audio"
     )
@@ -442,8 +461,8 @@ def recorder() -> None:
         "-o",
         "--output",
         type=str,
-        default=".",
-        help="Output directory or file (default: current directory)",
+        default="recordings",
+        help="Output directory (default: recordings)",
     )
     parser.add_argument(
         "-g",
@@ -472,8 +491,15 @@ def recorder() -> None:
     parser.add_argument(
         "--db",
         type=str,
+        default="data/unified.duckdb",
+        help="DuckDB path (default: data/unified.duckdb)",
+    )
+    parser.add_argument(
+        "-l",
+        "--location",
+        type=str,
         default=None,
-        help="Store recording metadata in UnifiedDB (e.g., data/unified.duckdb)",
+        help="Location name (default: hostname)",
     )
 
     args = parser.parse_args()
@@ -490,53 +516,35 @@ def recorder() -> None:
             print(f"Error: Invalid gain value: {args.gain}", file=sys.stderr)
             sys.exit(1)
 
-    # Setup database if requested
-    db = None
-    if args.db:
-        try:
-            from pathlib import Path
+    # Survey-first: Setup database and create ad-hoc survey
+    from datetime import datetime
+    from pathlib import Path
 
-            from sdr_toolkit.storage import UnifiedDB
+    from sdr_toolkit.storage import UnifiedDB
+    from sdr_toolkit.apps.survey.manager import SurveyManager
 
-            db = UnifiedDB(Path(args.db))
-            db.connect()
-        except Exception as e:
-            print(f"Warning: Could not open database: {e}", file=sys.stderr)
+    db_path = Path(args.db)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Ensure output directory exists
+    output_dir = Path(args.output)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        recorder_instance = SignalRecorder(
-            center_freq_mhz=args.freq,
-            gain=gain,
-            device_index=args.device,
-        )
+        with UnifiedDB(db_path) as db:
+            manager = SurveyManager(db)
 
-        if args.fm:
-            print(f"Recording FM audio at {args.freq} MHz for {args.duration}s...")
-            output_path = args.output
-            if not output_path.endswith(".wav"):
-                from datetime import datetime
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                output_path = f"{output_path}/fm_{args.freq}MHz_{timestamp}.wav"
-
-            result = recorder_instance.record_fm_audio(
-                duration=args.duration,
-                output_path=output_path,
-            )
-        else:
-            print(f"Recording IQ at {args.freq} MHz for {args.duration}s...")
-            result = recorder_instance.record_iq(
-                duration=args.duration,
-                output_dir=args.output,
+            # Create ad-hoc survey for this recording
+            record_type = "FM audio" if args.fm else "IQ"
+            survey_name = f"Record {record_type} {args.freq}MHz {datetime.now():%Y%m%d_%H%M}"
+            survey = manager.create_adhoc_survey(
+                name=survey_name,
+                start_hz=args.freq * 1e6 - 0.5e6,  # ±500 kHz around center
+                end_hz=args.freq * 1e6 + 0.5e6,
+                location_name=args.location,
             )
 
-        print(f"\nRecording saved to: {result.path}")
-        print(f"Duration: {result.duration_seconds:.1f} seconds")
-        print(f"Samples: {result.num_samples:,}")
-
-        # Store recording in database if requested
-        if db:
-            from sdr_toolkit.storage.models import RFCapture
-
+            # Start scan session for audit trail
             scan_id = db.start_scan_session(
                 "recording",
                 {
@@ -544,22 +552,66 @@ def recorder() -> None:
                     "duration_seconds": args.duration,
                     "gain": str(gain),
                     "type": "fm_audio" if args.fm else "iq",
+                    "survey_id": survey.survey_id,
                 },
             )
 
-            capture = RFCapture(
-                scan_id=scan_id,
+            # Get the segment
+            segment = manager.get_next_segment(survey.survey_id)
+            if segment:
+                manager.start_segment(segment.segment_id, scan_id)
+
+            # Execute recording
+            recorder_instance = SignalRecorder(
+                center_freq_mhz=args.freq,
+                gain=gain,
+                device_index=args.device,
+            )
+
+            if args.fm:
+                print(f"Recording FM audio at {args.freq} MHz for {args.duration}s...")
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                output_path = str(output_dir / f"fm_{args.freq}MHz_{timestamp}.wav")
+
+                result = recorder_instance.record_fm_audio(
+                    duration=args.duration,
+                    output_path=output_path,
+                )
+            else:
+                print(f"Recording IQ at {args.freq} MHz for {args.duration}s...")
+                result = recorder_instance.record_iq(
+                    duration=args.duration,
+                    output_dir=str(output_dir),
+                )
+
+            print(f"\nRecording saved to: {result.path}")
+            print(f"Duration: {result.duration_seconds:.1f} seconds")
+            print(f"Samples: {result.num_samples:,}")
+
+            # Record signal to unified signals table with SigMF path
+            signal = manager.record_signal(
+                survey_id=survey.survey_id,
+                segment_id=segment.segment_id if segment else None,
                 frequency_hz=args.freq * 1e6,
                 power_db=0.0,  # Not measured during recording
-                sigmf_path=result.path,
-                annotations={
-                    "duration_seconds": result.duration_seconds,
-                    "num_samples": result.num_samples,
-                    "type": "fm_audio" if args.fm else "iq",
-                },
+                scan_id=scan_id,
             )
-            db.record_rf_capture(capture)
 
+            # Update signal with SigMF path
+            db.conn.execute(
+                "UPDATE signals SET sigmf_path = ? WHERE signal_id = ?",
+                [str(result.path), signal.signal_id],
+            )
+
+            # Complete segment and survey
+            if segment:
+                manager.complete_segment(
+                    segment.segment_id,
+                    signals_found=1,
+                    scan_time_seconds=result.duration_seconds,
+                )
+
+            # End scan session
             db.end_scan_session(
                 scan_id,
                 {
@@ -568,16 +620,16 @@ def recorder() -> None:
                     "num_samples": result.num_samples,
                 },
             )
+
             print(f"\nRecording indexed in: {args.db}")
+            print(f"  Survey ID: {survey.survey_id}")
+            print(f"  Signal ID: {signal.signal_id}")
 
     except KeyboardInterrupt:
         print("\nRecording cancelled")
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
-    finally:
-        if db:
-            db.close()
 
 
 def iot_scan() -> None:

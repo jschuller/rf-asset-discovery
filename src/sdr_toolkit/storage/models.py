@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # ============================================================================
 # Standards-Aligned Enums
@@ -228,18 +228,143 @@ class Asset(BaseModel):
         self.last_seen = datetime.now()
 
 
-class RFCapture(BaseModel):
-    """Individual RF signal capture record."""
+class SignalState(str, Enum):
+    """Lifecycle state for discovered signals.
 
-    capture_id: str = Field(default_factory=lambda: str(uuid4()), description="Capture ID")
-    asset_id: str | None = Field(default=None, description="Linked asset ID")
-    scan_id: str = Field(..., description="Parent scan session ID")
-    frequency_hz: float = Field(..., description="Capture frequency")
+    ServiceNow-style state management for signal tracking.
+    """
+
+    DISCOVERED = "discovered"  # Newly detected, needs review
+    CONFIRMED = "confirmed"  # Verified as real signal
+    DISMISSED = "dismissed"  # Marked as noise/ignore
+    PROMOTED = "promoted"  # Converted to asset
+
+
+# Band lookup table for freq_band derivation
+# Note: More specific bands (like ISM 433) MUST come before broader bands
+# that contain them (like UHF amateur)
+_BANDS = [
+    (24e6, 30e6, "hf"),
+    (30e6, 50e6, "vhf_low"),
+    (50e6, 87.5e6, "vhf_mid"),
+    (87.5e6, 108e6, "fm_broadcast"),
+    (108e6, 137e6, "aircraft"),
+    (137e6, 174e6, "vhf_high"),
+    (174e6, 216e6, "vhf_tv"),
+    (216e6, 315e6, "uhf_low"),
+    (315e6, 315.5e6, "ism_315"),
+    (400e6, 420e6, "uhf_satellite"),
+    # ISM 433 must come before uhf_amateur (433-435 is inside 420-450)
+    (433e6, 435e6, "ism_433"),
+    (420e6, 433e6, "uhf_amateur"),  # Before ISM
+    (435e6, 450e6, "uhf_amateur"),  # After ISM
+    # FRS/GMRS must come before uhf_land_mobile (462-468 is inside 450-470)
+    (462e6, 468e6, "frs_gmrs"),
+    (450e6, 462e6, "uhf_land_mobile"),  # Before FRS
+    (468e6, 470e6, "uhf_land_mobile"),  # After FRS
+    (470e6, 512e6, "uhf_tv"),
+    (806e6, 902e6, "cellular_800"),
+    (902e6, 928e6, "ism_900"),
+    (1090e6, 1091e6, "adsb"),
+    (1227e6, 1576e6, "gps"),
+]
+
+
+def _derive_freq_band(freq_hz: float) -> str:
+    """Derive band name from frequency (private helper)."""
+    for start, end, name in _BANDS:
+        if start <= freq_hz < end:
+            return name
+    return "other"
+
+
+class Signal(BaseModel):
+    """Unified signal detection record.
+
+    Replaces rf_captures and survey_signals with a single model
+    that includes lifecycle management and partition columns.
+    """
+
+    model_config = ConfigDict(validate_default=True)
+
+    signal_id: str = Field(default_factory=lambda: str(uuid4()), description="Signal ID")
+
+    # Core detection
+    frequency_hz: float = Field(..., description="Center frequency in Hz")
     power_db: float = Field(..., description="Signal power in dB")
-    timestamp: datetime = Field(default_factory=datetime.now, description="Capture time")
+    bandwidth_hz: float | None = Field(default=None, description="Estimated bandwidth")
+
+    # Computed band (for filtering) - auto-derived from frequency_hz
+    freq_band: str = Field(default="unknown", description="Frequency band name")
+
+    # Time tracking
+    first_seen: datetime = Field(default_factory=datetime.now, description="First detection")
+    last_seen: datetime | None = Field(default=None, description="Most recent detection")
+    detection_count: int = Field(default=1, description="Number of detections")
+
+    # Lifecycle
+    state: SignalState = Field(default=SignalState.DISCOVERED, description="Signal state")
+
+    # Survey context (always set in survey-first model)
+    survey_id: str = Field(..., description="Parent survey ID")
+    segment_id: str | None = Field(default=None, description="Segment ID")
+    scan_id: str | None = Field(default=None, description="Scan session ID")
+
+    # Recording
     sigmf_path: Path | None = Field(default=None, description="Path to SigMF recording")
-    rf_protocol: RFProtocol | None = Field(default=None, description="Detected protocol")
+
+    # Classification
+    rf_protocol: RFProtocol = Field(default=RFProtocol.UNKNOWN, description="RF protocol")
     annotations: dict[str, Any] = Field(default_factory=dict, description="Signal annotations")
+    notes: str | None = Field(default=None, description="User notes")
+
+    # Asset promotion
+    promoted_asset_id: str | None = Field(default=None, description="Asset ID if promoted")
+
+    # Partition columns (computed on write for Delta Lake)
+    location_name: str = Field(..., description="Location name")
+    year: int = Field(..., description="Year for partitioning")
+    month: int = Field(..., description="Month for partitioning")
+
+    @model_validator(mode="after")
+    def derive_band(self) -> "Signal":
+        """Auto-derive freq_band from frequency_hz."""
+        if self.freq_band == "unknown":
+            self.freq_band = _derive_freq_band(self.frequency_hz)
+        return self
+
+    @property
+    def frequency_mhz(self) -> float:
+        """Return frequency in MHz."""
+        return self.frequency_hz / 1e6
+
+    def update_detection(self, power_db: float) -> None:
+        """Update signal with new detection."""
+        self.last_seen = datetime.now()
+        self.detection_count += 1
+        if power_db > self.power_db:
+            self.power_db = power_db
+
+    def should_auto_promote(self, min_detections: int = 3) -> bool:
+        """Check if signal qualifies for auto-promotion to asset."""
+        return (
+            self.state == SignalState.DISCOVERED
+            and self.detection_count >= min_detections
+        )
+
+
+def derive_freq_band(freq_hz: float) -> str:
+    """Derive band name from frequency.
+
+    Used to populate the freq_band column for filtering.
+
+    Args:
+        freq_hz: Frequency in Hz.
+
+    Returns:
+        Band name string.
+    """
+    return _derive_freq_band(freq_hz)
 
 
 class NetworkScan(BaseModel):

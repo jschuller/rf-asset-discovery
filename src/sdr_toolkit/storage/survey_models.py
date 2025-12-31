@@ -47,20 +47,8 @@ class SegmentPriority(int, Enum):
     COARSE = 3  # Gap filling with wide steps
 
 
-class SignalState(str, Enum):
-    """ServiceNow-style signal state management.
-
-    Signals progress through states as they are evaluated:
-    - discovered: Initial detection
-    - confirmed: Manually verified as legitimate
-    - dismissed: Marked as noise/interference
-    - promoted: Converted to persistent asset
-    """
-
-    DISCOVERED = "discovered"  # Newly detected, needs review
-    CONFIRMED = "confirmed"  # Verified as real signal
-    DISMISSED = "dismissed"  # Marked as noise/ignore
-    PROMOTED = "promoted"  # Converted to asset
+# NOTE: SignalState enum moved to models.py
+# Import from there: from sdr_toolkit.storage.models import SignalState
 
 
 # ============================================================================
@@ -133,77 +121,8 @@ class SurveySegment(BaseModel):
         return self.estimated_steps * 0.15
 
 
-class SurveySignal(BaseModel):
-    """Discovered signal with state tracking.
-
-    Signals are tracked across survey segments and can be
-    promoted to persistent assets when confirmed.
-    """
-
-    signal_id: str = Field(
-        default_factory=lambda: str(uuid4()),
-        description="Unique signal identifier",
-    )
-    survey_id: str = Field(..., description="Parent survey ID")
-    segment_id: str | None = Field(default=None, description="Discovery segment ID")
-
-    # Signal characteristics
-    frequency_hz: float = Field(..., description="Center frequency in Hz")
-    power_db: float = Field(..., description="Signal power in dB")
-    bandwidth_hz: float | None = Field(default=None, description="Estimated bandwidth")
-
-    # Tracking
-    first_seen: datetime = Field(
-        default_factory=datetime.now,
-        description="First detection time",
-    )
-    last_seen: datetime = Field(
-        default_factory=datetime.now,
-        description="Most recent detection",
-    )
-    detection_count: int = Field(default=1, description="Number of detections")
-
-    # State management (ServiceNow-style)
-    state: SignalState = Field(
-        default=SignalState.DISCOVERED,
-        description="Signal lifecycle state",
-    )
-    promoted_asset_id: str | None = Field(
-        default=None,
-        description="Asset ID if promoted",
-    )
-    notes: str | None = Field(default=None, description="User notes")
-
-    @property
-    def frequency_mhz(self) -> float:
-        """Return frequency in MHz."""
-        return self.frequency_hz / 1e6
-
-    def should_auto_promote(self, min_detections: int = 3) -> bool:
-        """Check if signal qualifies for auto-promotion to asset.
-
-        Args:
-            min_detections: Minimum detection count required.
-
-        Returns:
-            True if signal should be promoted.
-        """
-        return (
-            self.state == SignalState.DISCOVERED
-            and self.detection_count >= min_detections
-        )
-
-    def update_detection(self, power_db: float) -> None:
-        """Update signal with new detection.
-
-        Args:
-            power_db: Power level of new detection.
-        """
-        self.last_seen = datetime.now()
-        self.detection_count += 1
-        # Update power if stronger
-        if power_db > self.power_db:
-            self.power_db = power_db
+# NOTE: SurveySignal class removed - use Signal from models.py instead
+# Import: from sdr_toolkit.storage.models import Signal, SignalState
 
 
 class SpectrumSurvey(BaseModel):

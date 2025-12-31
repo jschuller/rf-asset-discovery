@@ -1,19 +1,32 @@
 # Spectrum Survey
 
-Comprehensive spectrum survey with DuckDB persistence and Ralph integration.
+All-in-one spectrum scanning: comprehensive surveys AND quick ad-hoc scans.
 
 ## Usage
 
 ```
 /survey                     # Show usage
-/survey create "My Survey"  # Create new full survey
+/survey quick --fm          # Quick ad-hoc scan (replaces /scan_spectrum)
+/survey create "My Survey"  # Create comprehensive survey
 /survey resume <id>         # Resume existing survey
 /survey status <id>         # Check progress
 ```
 
 ## Commands
 
-### Create Survey
+### Quick Ad-Hoc Scan (Survey-First)
+
+```bash
+# Ad-hoc scans create single-segment surveys automatically
+uv run sdr-scan --fm                        # FM band (87.5-108 MHz)
+uv run sdr-scan --aircraft                  # Aircraft band (118-137 MHz)
+uv run sdr-scan -s 400 -e 450               # Custom range
+uv run sdr-scan --fm -l "NYC Office"        # With location
+```
+
+All scans route through surveys → signals table → optional promotion to assets.
+
+### Create Full Survey
 
 ```bash
 # Full survey (24-1766 MHz with gap filling) - ~30-45 min
@@ -132,9 +145,11 @@ All data persists in `data/unified.duckdb`:
 
 - `spectrum_surveys` - Survey metadata (with location/run context)
 - `survey_segments` - Individual scan blocks
-- `survey_signals` - Discovered signals with state
-- `survey_locations` - Reusable location definitions
-- `survey_comparison` - View for comparing runs
+- `signals` - All RF detections with lifecycle (unified table)
+- `assets` - Canonical CMDB inventory (promoted from signals)
+- `scan_sessions` - Operation audit log
+
+Delta Lake (`data/delta/signals`) provides time travel for baseline comparison.
 
 ## Environment
 

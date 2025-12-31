@@ -46,17 +46,46 @@ CREATE TABLE IF NOT EXISTS assets (
     ot_criticality VARCHAR           -- essential, important, standard
 );
 
--- RF signal captures
-CREATE TABLE IF NOT EXISTS rf_captures (
-    capture_id VARCHAR PRIMARY KEY,
-    asset_id VARCHAR REFERENCES assets(id),
-    scan_id VARCHAR NOT NULL,
+-- Unified signals table (replaces rf_captures + survey_signals)
+CREATE TABLE IF NOT EXISTS signals (
+    signal_id VARCHAR PRIMARY KEY,
+
+    -- Core detection
     frequency_hz DOUBLE NOT NULL,
     power_db DOUBLE NOT NULL,
-    timestamp TIMESTAMP NOT NULL,
+    bandwidth_hz DOUBLE,
+
+    -- Computed band (indexed, not partitioned)
+    freq_band VARCHAR DEFAULT 'unknown',
+
+    -- Time tracking
+    first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_seen TIMESTAMP,
+    detection_count INTEGER DEFAULT 1,
+
+    -- Lifecycle (ServiceNow-style state management)
+    state VARCHAR DEFAULT 'discovered',  -- discovered, confirmed, dismissed, promoted
+
+    -- Survey context (always set in survey-first model)
+    survey_id VARCHAR NOT NULL,
+    segment_id VARCHAR,
+    scan_id VARCHAR,
+
+    -- Recording
     sigmf_path VARCHAR,
-    rf_protocol VARCHAR,
-    annotations JSON
+
+    -- Classification
+    rf_protocol VARCHAR DEFAULT 'unknown',
+    annotations JSON,
+    notes VARCHAR,
+
+    -- Asset promotion
+    promoted_asset_id VARCHAR,
+
+    -- Partition columns (computed on write for Delta Lake)
+    location_name VARCHAR NOT NULL,
+    year INTEGER NOT NULL,
+    month INTEGER NOT NULL
 );
 
 -- Network scan results
@@ -98,12 +127,14 @@ CREATE INDEX IF NOT EXISTS idx_assets_security ON assets(security_posture);
 CREATE INDEX IF NOT EXISTS idx_assets_purdue ON assets(purdue_level);
 CREATE INDEX IF NOT EXISTS idx_assets_category ON assets(device_category);
 
--- RF capture lookups
-CREATE INDEX IF NOT EXISTS idx_rf_captures_scan ON rf_captures(scan_id);
-CREATE INDEX IF NOT EXISTS idx_rf_captures_asset ON rf_captures(asset_id);
-CREATE INDEX IF NOT EXISTS idx_rf_captures_freq ON rf_captures(frequency_hz);
-CREATE INDEX IF NOT EXISTS idx_rf_captures_protocol ON rf_captures(rf_protocol);
-CREATE INDEX IF NOT EXISTS idx_rf_captures_time ON rf_captures(timestamp);
+-- Signals table lookups
+CREATE INDEX IF NOT EXISTS idx_signals_survey ON signals(survey_id);
+CREATE INDEX IF NOT EXISTS idx_signals_freq ON signals(frequency_hz);
+CREATE INDEX IF NOT EXISTS idx_signals_band ON signals(freq_band);
+CREATE INDEX IF NOT EXISTS idx_signals_state ON signals(state);
+CREATE INDEX IF NOT EXISTS idx_signals_location ON signals(location_name);
+CREATE INDEX IF NOT EXISTS idx_signals_time ON signals(first_seen);
+CREATE INDEX IF NOT EXISTS idx_signals_protocol ON signals(rf_protocol);
 
 -- Network scan lookups
 CREATE INDEX IF NOT EXISTS idx_network_scans_mac ON network_scans(mac_address);
@@ -188,27 +219,7 @@ CREATE TABLE IF NOT EXISTS survey_segments (
     error_message VARCHAR
 );
 
--- Auto-discovered signals (promoted to assets based on recurrence)
-CREATE TABLE IF NOT EXISTS survey_signals (
-    signal_id VARCHAR PRIMARY KEY,
-    survey_id VARCHAR NOT NULL,  -- FK removed due to DuckDB UPDATE bug
-    segment_id VARCHAR,
-
-    -- Signal characteristics
-    frequency_hz DOUBLE NOT NULL,
-    power_db DOUBLE NOT NULL,
-    bandwidth_hz DOUBLE,
-
-    -- Tracking
-    first_seen TIMESTAMP NOT NULL,
-    last_seen TIMESTAMP NOT NULL,
-    detection_count INTEGER DEFAULT 1,
-
-    -- ServiceNow-style state management
-    state VARCHAR NOT NULL DEFAULT 'discovered',  -- discovered, confirmed, dismissed, promoted
-    promoted_asset_id VARCHAR,  -- FK removed due to DuckDB UPDATE bug
-    notes VARCHAR
-);
+-- NOTE: survey_signals table removed - signals are now stored in unified signals table
 
 -- Survey indexes
 CREATE INDEX IF NOT EXISTS idx_surveys_status ON spectrum_surveys(status);
@@ -216,9 +227,7 @@ CREATE INDEX IF NOT EXISTS idx_surveys_created ON spectrum_surveys(created_at);
 CREATE INDEX IF NOT EXISTS idx_segments_survey ON survey_segments(survey_id);
 CREATE INDEX IF NOT EXISTS idx_segments_status ON survey_segments(status, priority);
 CREATE INDEX IF NOT EXISTS idx_segments_freq ON survey_segments(start_freq_hz);
-CREATE INDEX IF NOT EXISTS idx_survey_signals_survey ON survey_signals(survey_id);
-CREATE INDEX IF NOT EXISTS idx_survey_signals_freq ON survey_signals(frequency_hz);
-CREATE INDEX IF NOT EXISTS idx_survey_signals_state ON survey_signals(state);
+-- NOTE: survey_signals indexes removed - use signals table indexes instead
 
 -- Phase 2: Reusable location definitions
 CREATE TABLE IF NOT EXISTS survey_locations (

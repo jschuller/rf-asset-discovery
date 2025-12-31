@@ -14,13 +14,11 @@ from uuid import uuid4
 from sdr_toolkit.apps.scanner import ScanResult, SpectrumScanner
 from sdr_toolkit.storage.survey_models import (
     SegmentStatus,
-    SignalState,
     SpectrumSurvey,
     SurveySegment,
-    SurveySignal,
     SurveyStatus,
 )
-from sdr_toolkit.storage.models import Asset, RFProtocol
+from sdr_toolkit.storage.models import Asset, RFProtocol, Signal, SignalState
 
 if TYPE_CHECKING:
     from sdr_toolkit.apps.survey.manager import SurveyManager
@@ -288,7 +286,7 @@ class SurveyExecutor:
 
         return promoted
 
-    def _promote_signal_to_asset(self, signal: SurveySignal) -> Asset | None:
+    def _promote_signal_to_asset(self, signal: Signal) -> Asset | None:
         """Create an asset from a recurring signal.
 
         Args:

@@ -24,6 +24,10 @@ storage = [
     "duckdb>=1.0.0",
     "pyarrow>=14.0.0",
 ]
+delta = [
+    "deltalake>=0.18.0",
+    "pyarrow>=14.0.0",
+]
 watch = [
     "pydantic>=2.0.0",
     "httpx>=0.25.0",
@@ -32,12 +36,13 @@ watch = [
 dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
+    "pytest-asyncio>=0.23.0",
     "mypy>=1.5.0",
     "ruff>=0.1.0",
     "duckdb>=1.0.0",
 ]
 all = [
-    "sdr-toolkit[plot,agent,adsb,ui,storage,watch,dev]",
+    "sdr-toolkit[plot,agent,adsb,ui,storage,delta,watch,dev]",
 ]
 
 [project.scripts]
@@ -75,3 +80,5 @@ ignore = ["ANN101", "ANN102"]  # self/cls type annotations
 testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
 addopts = "--cov=sdr_toolkit --cov-report=term-missing"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

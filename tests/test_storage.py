@@ -13,11 +13,12 @@ from sdr_toolkit.storage import (
     DeviceCategory,
     NetworkScan,
     PurdueLevel,
-    RFCapture,
     RFProtocol,
     RiskLevel,
     ScanSession,
     SecurityPosture,
+    Signal,
+    SignalState,
     UnifiedDB,
     apply_nist_categorization,
     assess_security_posture,
@@ -80,19 +81,38 @@ class TestAssetModel:
         assert asset.last_seen >= old_time
 
 
-class TestRFCapture:
-    """Tests for RFCapture model."""
+class TestSignal:
+    """Tests for Signal model."""
 
-    def test_rf_capture_creation(self) -> None:
-        """RFCapture should be created with required fields."""
-        capture = RFCapture(
-            scan_id="scan-123",
+    def test_signal_creation(self) -> None:
+        """Signal should be created with required fields."""
+        signal = Signal(
+            survey_id="survey-123",
             frequency_hz=433.92e6,
             power_db=-30.5,
+            location_name="test-location",
+            year=2025,
+            month=12,
         )
-        assert capture.capture_id is not None
-        assert capture.frequency_hz == 433.92e6
-        assert capture.scan_id == "scan-123"
+        assert signal.signal_id is not None
+        assert signal.frequency_hz == 433.92e6
+        assert signal.survey_id == "survey-123"
+        assert signal.state == SignalState.DISCOVERED
+        assert signal.freq_band == "ism_433"
+
+    def test_signal_lifecycle_states(self) -> None:
+        """Signal should support all lifecycle states."""
+        for state in SignalState:
+            signal = Signal(
+                survey_id="survey-123",
+                frequency_hz=100e6,
+                power_db=-30.0,
+                state=state,
+                location_name="test",
+                year=2025,
+                month=1,
+            )
+            assert signal.state == state
 
 
 class TestScanSession:
@@ -321,7 +341,7 @@ class TestUnifiedDB:
         result = db.query("SELECT name FROM sqlite_master WHERE type='table'")
         table_names = {row["name"] for row in result}
         assert "assets" in table_names
-        assert "rf_captures" in table_names
+        assert "signals" in table_names
 
     def test_insert_and_get_asset(self, db: UnifiedDB) -> None:
         """Should insert and retrieve asset."""
@@ -384,20 +404,24 @@ class TestUnifiedDB:
         results = db.find_assets_by_protocol(RFProtocol.WIFI)
         assert len(results) == 2
 
-    def test_record_rf_capture(self, db: UnifiedDB) -> None:
-        """Should record RF capture."""
+    def test_record_signal(self, db: UnifiedDB) -> None:
+        """Should record signal to unified signals table."""
         scan_id = db.start_scan_session("rf_spectrum")
-        capture = RFCapture(
+        signal = Signal(
+            survey_id="test-survey",
             scan_id=scan_id,
             frequency_hz=433.92e6,
             power_db=-35.0,
             rf_protocol=RFProtocol.TPMS,
+            location_name="test-location",
+            year=2025,
+            month=12,
         )
-        capture_id = db.record_rf_capture(capture)
+        signal_id = db.record_signal(signal)
 
-        captures = db.get_captures_by_scan(scan_id)
-        assert len(captures) == 1
-        assert captures[0].capture_id == capture_id
+        signals = db.get_signals_by_survey("test-survey")
+        assert len(signals) == 1
+        assert signals[0].signal_id == signal_id
 
     def test_scan_session_lifecycle(self, db: UnifiedDB) -> None:
         """Should manage scan session lifecycle."""
@@ -474,7 +498,7 @@ class TestSurveySchema:
 
         assert "spectrum_surveys" in table_names
         assert "survey_segments" in table_names
-        assert "survey_signals" in table_names
+        assert "signals" in table_names
         assert "survey_locations" in table_names
 
     def test_survey_views_exist(self, db: UnifiedDB) -> None:
@@ -492,7 +516,7 @@ class TestSurveySchema:
         # Check key survey indexes
         assert "idx_surveys_status" in index_names
         assert "idx_segments_survey" in index_names
-        assert "idx_survey_signals_survey" in index_names
+        assert "idx_signals_survey" in index_names
 
     def test_spectrum_surveys_columns(self, db: UnifiedDB) -> None:
         """spectrum_surveys table should have expected columns."""
@@ -517,14 +541,15 @@ class TestSurveySchema:
         }
         assert expected.issubset(column_names)
 
-    def test_survey_signals_columns(self, db: UnifiedDB) -> None:
-        """survey_signals table should have expected columns."""
-        result = db.query("PRAGMA table_info(survey_signals)")
+    def test_signals_columns(self, db: UnifiedDB) -> None:
+        """signals table should have expected columns."""
+        result = db.query("PRAGMA table_info(signals)")
         column_names = {row["name"] for row in result}
 
         expected = {
             "signal_id", "survey_id", "segment_id", "frequency_hz",
             "power_db", "state", "detection_count", "promoted_asset_id",
+            "freq_band", "location_name", "year", "month",
         }
         assert expected.issubset(column_names)
 
@@ -580,31 +605,32 @@ class TestSurveyCRUD:
         assert result[0]["name"] == "FM Band"
         assert result[0]["start_freq_hz"] == 87500000
 
-    def test_insert_survey_signal(self, db: UnifiedDB) -> None:
-        """Should insert a survey signal."""
+    def test_insert_signal(self, db: UnifiedDB) -> None:
+        """Should insert a signal into unified signals table."""
         # Create parent survey
         db.conn.execute("""
             INSERT INTO spectrum_surveys (survey_id, name, status)
             VALUES ('survey-1', 'Parent', 'in_progress')
         """)
 
-        # Insert signal (first_seen and last_seen are NOT NULL)
+        # Insert signal with all required columns
         db.conn.execute("""
-            INSERT INTO survey_signals (
+            INSERT INTO signals (
                 signal_id, survey_id, frequency_hz, power_db, state,
-                first_seen, last_seen
+                first_seen, location_name, year, month
             ) VALUES (
                 'sig-1', 'survey-1', 101900000, -25.5, 'discovered',
-                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                CURRENT_TIMESTAMP, 'test-location', 2025, 12
             )
         """)
 
         result = db.query(
-            "SELECT * FROM survey_signals WHERE signal_id = 'sig-1'"
+            "SELECT * FROM signals WHERE signal_id = 'sig-1'"
         )
         assert len(result) == 1
         assert result[0]["frequency_hz"] == 101900000
         assert result[0]["state"] == "discovered"
+        assert result[0]["location_name"] == "test-location"
 
     def test_update_signal_state(self, db: UnifiedDB) -> None:
         """Should update signal state."""
@@ -614,23 +640,23 @@ class TestSurveyCRUD:
             VALUES ('survey-1', 'Parent', 'in_progress')
         """)
         db.conn.execute("""
-            INSERT INTO survey_signals (
+            INSERT INTO signals (
                 signal_id, survey_id, frequency_hz, power_db, state,
-                first_seen, last_seen
+                first_seen, location_name, year, month
             ) VALUES (
                 'sig-1', 'survey-1', 101900000, -25.5, 'discovered',
-                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                CURRENT_TIMESTAMP, 'test-location', 2025, 12
             )
         """)
 
         # Update state
         db.conn.execute("""
-            UPDATE survey_signals SET state = 'confirmed'
+            UPDATE signals SET state = 'confirmed'
             WHERE signal_id = 'sig-1'
         """)
 
         result = db.query(
-            "SELECT state FROM survey_signals WHERE signal_id = 'sig-1'"
+            "SELECT state FROM signals WHERE signal_id = 'sig-1'"
         )
         assert result[0]["state"] == "confirmed"
 

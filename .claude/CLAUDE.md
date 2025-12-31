@@ -39,9 +39,7 @@ uv run sdr-am -f 119.1            # Aircraft AM
 
 ```
 /prime           Context priming (start here)
-/scan_spectrum   Spectrum scanning
-/record_signal   Signal recording
-/analyze_capture Recording analysis
+/survey          Spectrum survey (comprehensive + ad-hoc scans)
 /fm_radio        FM listening
 /iot             IoT device discovery
 /watch           Autonomous monitoring
@@ -51,9 +49,13 @@ uv run sdr-am -f 119.1            # Aircraft AM
 
 | Table | Purpose |
 |-------|---------|
-| `assets` | Discovered devices (CMDB/NIST/Purdue) |
-| `rf_captures` | Signal detections |
-| `scan_sessions` | Scan metadata |
+| `signals` | All RF detections with lifecycle (discovered → confirmed → promoted) |
+| `assets` | Canonical CMDB inventory (promoted from signals) |
+| `spectrum_surveys` | Survey orchestration |
+| `survey_segments` | Segment definitions |
+| `scan_sessions` | Operation audit log |
+
+**Data flow:** CLI → Survey → Signals → Assets (with Delta Lake time travel)
 
 ## Architecture
 

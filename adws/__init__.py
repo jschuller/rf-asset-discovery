@@ -1,11 +1,11 @@
 """Agentic Developer Workflows for SDR Toolkit.
 
 TAC-8 style workflows for AI-driven SDR operations.
+
+Only adw_spectrum_watch remains - other ADWs were consolidated into
+slash commands (/survey, /capture) which provide equivalent functionality.
 """
 
-from adws.adw_sdr_analyze import run_analyze_workflow
-from adws.adw_sdr_record import run_record_workflow
-from adws.adw_sdr_scan import run_scan_workflow
 from adws.adw_spectrum_watch import (
     SpectrumWatch,
     run_watch_cli,
@@ -15,9 +15,6 @@ from adws.adw_spectrum_watch import (
 )
 
 __all__ = [
-    "run_scan_workflow",
-    "run_record_workflow",
-    "run_analyze_workflow",
     "SpectrumWatch",
     "run_watch_cli",
     "watch_band",

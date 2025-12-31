@@ -10,13 +10,12 @@ from sdr_toolkit.storage.survey_models import (
     BandDefinition,
     SegmentPriority,
     SegmentStatus,
-    SignalState,
     SpectrumSurvey,
     SurveyLocation,
     SurveySegment,
-    SurveySignal,
     SurveyStatus,
 )
+from sdr_toolkit.storage.models import Signal, SignalState
 
 
 # ============================================================================
@@ -125,19 +124,22 @@ class TestSurveySegment:
 
 
 # ============================================================================
-# SurveySignal Tests
+# Signal Tests (using unified Signal model from models.py)
 # ============================================================================
 
 
-class TestSurveySignal:
-    """Tests for SurveySignal model."""
+class TestSignal:
+    """Tests for unified Signal model."""
 
     def test_signal_creation(self) -> None:
         """Signal should be created with required fields."""
-        signal = SurveySignal(
+        signal = Signal(
             survey_id="survey-123",
             frequency_hz=101.9e6,
             power_db=-25.0,
+            location_name="test-location",
+            year=2025,
+            month=12,
         )
         assert signal.signal_id is not None
         assert signal.frequency_hz == 101.9e6
@@ -146,86 +148,81 @@ class TestSurveySignal:
 
     def test_signal_defaults(self) -> None:
         """Signal should have sensible defaults."""
-        signal = SurveySignal(
+        signal = Signal(
             survey_id="test",
             frequency_hz=100e6,
             power_db=-30.0,
+            location_name="test",
+            year=2025,
+            month=1,
         )
         assert signal.detection_count == 1
         assert signal.state == SignalState.DISCOVERED
         assert signal.promoted_asset_id is None
         assert signal.first_seen is not None
-        assert signal.last_seen is not None
 
-    def test_frequency_mhz_property(self) -> None:
-        """frequency_mhz should convert Hz to MHz."""
-        signal = SurveySignal(
+    def test_signal_freq_band_detection(self) -> None:
+        """Signal should auto-detect freq_band from frequency."""
+        # FM broadcast
+        fm_signal = Signal(
             survey_id="test",
             frequency_hz=101.9e6,
             power_db=-25.0,
+            location_name="test",
+            year=2025,
+            month=1,
         )
-        assert signal.frequency_mhz == 101.9
+        assert fm_signal.freq_band == "fm_broadcast"
 
-    def test_should_auto_promote_default(self) -> None:
-        """Signal with 3+ detections should qualify for auto-promote."""
-        signal = SurveySignal(
+        # ISM 433
+        ism_signal = Signal(
+            survey_id="test",
+            frequency_hz=433.92e6,
+            power_db=-30.0,
+            location_name="test",
+            year=2025,
+            month=1,
+        )
+        assert ism_signal.freq_band == "ism_433"
+
+        # Aircraft
+        aircraft_signal = Signal(
+            survey_id="test",
+            frequency_hz=121.5e6,
+            power_db=-30.0,
+            location_name="test",
+            year=2025,
+            month=1,
+        )
+        assert aircraft_signal.freq_band == "aircraft"
+
+    def test_signal_lifecycle_states(self) -> None:
+        """Signal should support all lifecycle states."""
+        for state in SignalState:
+            signal = Signal(
+                survey_id="test",
+                frequency_hz=100e6,
+                power_db=-30.0,
+                state=state,
+                location_name="test",
+                year=2025,
+                month=1,
+            )
+            assert signal.state == state
+
+    def test_signal_partition_columns(self) -> None:
+        """Signal should have partition columns for Delta Lake."""
+        signal = Signal(
             survey_id="test",
             frequency_hz=100e6,
             power_db=-30.0,
+            location_name="NYC_Office",
+            year=2025,
+            month=6,
         )
-        # 1 detection - not enough
-        assert signal.should_auto_promote() is False
-
-        # Update to 3 detections
-        signal.detection_count = 3
-        assert signal.should_auto_promote() is True
-
-    def test_should_auto_promote_custom_threshold(self) -> None:
-        """should_auto_promote should respect custom threshold."""
-        signal = SurveySignal(
-            survey_id="test",
-            frequency_hz=100e6,
-            power_db=-30.0,
-        )
-        signal.detection_count = 5
-        assert signal.should_auto_promote(min_detections=5) is True
-        assert signal.should_auto_promote(min_detections=6) is False
-
-    def test_should_auto_promote_wrong_state(self) -> None:
-        """Non-discovered signals should not auto-promote."""
-        signal = SurveySignal(
-            survey_id="test",
-            frequency_hz=100e6,
-            power_db=-30.0,
-        )
-        signal.detection_count = 10
-        signal.state = SignalState.CONFIRMED
-        assert signal.should_auto_promote() is False
-
-    def test_update_detection(self) -> None:
-        """update_detection should increment count and update timestamp."""
-        signal = SurveySignal(
-            survey_id="test",
-            frequency_hz=100e6,
-            power_db=-30.0,
-        )
-        old_last_seen = signal.last_seen
-
-        signal.update_detection(power_db=-25.0)
-
-        assert signal.detection_count == 2
-        assert signal.last_seen >= old_last_seen
-        assert signal.power_db == -25.0  # Updated to stronger
-
-    def test_update_detection_weaker_power(self) -> None:
-        """update_detection should not update power if weaker."""
-        signal = SurveySignal(
-            survey_id="test",
-            frequency_hz=100e6,
-            power_db=-25.0,
-        )
-        signal.update_detection(power_db=-35.0)  # Weaker signal
-        assert signal.power_db == -25.0  # Kept original
+        assert signal.location_name == "NYC_Office"
+        assert signal.year == 2025
+        assert signal.month == 6
 
 
 # ============================================================================

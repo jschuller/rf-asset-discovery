@@ -43,6 +43,7 @@ class DeviceRegistry:
         self._db = db
         self._packet_count = 0
         self._scan_id: str | None = None
+        self._survey_id: str | None = None
 
     @property
     def device_count(self) -> int:
@@ -54,13 +55,15 @@ class DeviceRegistry:
         """Total packets processed."""
         return self._packet_count
 
-    def set_scan_id(self, scan_id: str) -> None:
-        """Set scan session ID for database storage.
+    def set_scan_id(self, scan_id: str, survey_id: str | None = None) -> None:
+        """Set scan session and survey IDs for database storage.
 
         Args:
             scan_id: Scan session ID from UnifiedDB.
+            survey_id: Survey ID (required for signal recording).
         """
         self._scan_id = scan_id
+        self._survey_id = survey_id
 
     def process_packet(self, packet: IoTPacket) -> IoTDevice:
         """Process a decoded packet.
@@ -86,8 +89,8 @@ class DeviceRegistry:
             self._devices[device_id] = device
             logger.info("New device discovered: %s (%s)", device_id, packet.protocol_type.value)
 
-        # Record to database if configured
-        if self._db and self._scan_id:
+        # Record to database if configured (survey-first model)
+        if self._db and self._survey_id:
             self._record_to_db(packet, device)
 
         return device
@@ -100,9 +103,12 @@ class DeviceRegistry:
             device: Updated device.
         """
         try:
-            # Record the RF capture
-            capture = packet.to_rf_capture(self._scan_id)  # type: ignore[arg-type]
-            self._db.record_rf_capture(capture)  # type: ignore[union-attr]
+            # Record the signal (survey-first model)
+            signal = packet.to_signal(
+                survey_id=self._survey_id,  # type: ignore[arg-type]
+                scan_id=self._scan_id,
+            )
+            self._db.record_signal(signal)  # type: ignore[union-attr]
 
             # Upsert device as asset (update existing or create new)
             asset = device.to_asset()

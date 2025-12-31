@@ -12,7 +12,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from sdr_toolkit.storage.models import Asset, RFCapture
+    from sdr_toolkit.storage.models import Asset, Signal
 
 
 class IoTProtocolType(str, Enum):
@@ -78,23 +78,37 @@ class IoTPacket:
             "raw_json": self.raw_json,
         }
 
-    def to_rf_capture(self, scan_id: str) -> RFCapture:
-        """Convert to RFCapture for UnifiedDB storage.
+    def to_signal(
+        self,
+        survey_id: str,
+        scan_id: str | None = None,
+        location_name: str | None = None,
+    ) -> Signal:
+        """Convert to Signal for UnifiedDB storage.
 
         Args:
-            scan_id: Parent scan session ID.
+            survey_id: Parent survey ID.
+            scan_id: Optional scan session ID.
+            location_name: Location name for partition. Defaults to hostname.
 
         Returns:
-            RFCapture model for database storage.
+            Signal model for database storage.
         """
-        from sdr_toolkit.decoders.iot.classifier import map_to_rf_protocol
-        from sdr_toolkit.storage.models import RFCapture
+        import socket
 
-        return RFCapture(
+        from sdr_toolkit.decoders.iot.classifier import map_to_rf_protocol
+        from sdr_toolkit.storage.models import Signal
+
+        if not location_name:
+            location_name = socket.gethostname() or "default"
+
+        return Signal(
+            survey_id=survey_id,
             scan_id=scan_id,
             frequency_hz=self.frequency_mhz * 1e6 if self.frequency_mhz else 433.92e6,
             power_db=self.rssi_db or -50.0,
-            timestamp=self.timestamp,
+            first_seen=self.timestamp,
+            last_seen=self.timestamp,
             rf_protocol=map_to_rf_protocol(self.protocol_type),
             annotations={
                 "iot_model": self.model,
@@ -105,6 +119,10 @@ class IoTPacket:
                 "pressure_kpa": self.pressure_kpa,
                 "battery_ok": self.battery_ok,
             },
+            # Partition columns
+            location_name=location_name,
+            year=self.timestamp.year,
+            month=self.timestamp.month,
         )
 
 

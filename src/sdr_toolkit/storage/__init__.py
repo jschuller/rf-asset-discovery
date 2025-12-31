@@ -26,24 +26,39 @@ from sdr_toolkit.storage.models import (
     NetworkScan,
     PurdueLevel,
     RFAttributes,
-    RFCapture,
     RFProtocol,
     RiskLevel,
     ScanSession,
     SecurityPosture,
+    Signal,
+    SignalState,
+    derive_freq_band,
 )
 from sdr_toolkit.storage.unified_db import UnifiedDB
+
+# Delta Lake support (optional dependency)
+try:
+    from sdr_toolkit.storage.delta_store import DeltaStore, signals_to_dataframe
+except ImportError:
+    DeltaStore = None  # type: ignore[misc, assignment]
+    signals_to_dataframe = None  # type: ignore[misc, assignment]
 
 __all__ = [
     # Main database class
     "UnifiedDB",
+    # Delta Lake (optional)
+    "DeltaStore",
+    "signals_to_dataframe",
     # Core models
     "Asset",
     "RFAttributes",
     "NetworkAttributes",
-    "RFCapture",
+    "Signal",
+    "SignalState",
     "NetworkScan",
     "ScanSession",
+    # Helper functions
+    "derive_freq_band",
     # Enums
     "CMDBCIClass",
     "RFProtocol",

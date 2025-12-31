@@ -1,4 +1,7 @@
-"""Agentic Developer Workflow modules for SDR Toolkit."""
+"""Agentic Developer Workflow modules for SDR Toolkit.
+
+Focused on autonomous spectrum monitoring (adw_spectrum_watch).
+"""
 
 from adws.adw_modules.agent import (
     AgentRequest,
@@ -7,14 +10,6 @@ from adws.adw_modules.agent import (
     run_claude_agent,
 )
 from adws.adw_modules.baseline import SpectrumBaseline
-from adws.adw_modules.data_models import (
-    AnalysisResult,
-    RecordingResult,
-    ScanResult,
-    SDRTask,
-    WorkflowPhase,
-    WorkflowState,
-)
 from adws.adw_modules.notifier import (
     ConsoleBackend,
     MultiBackend,
@@ -48,13 +43,6 @@ __all__ = [
     "AgentResponse",
     "run_claude_agent",
     "generate_adw_id",
-    # Data models
-    "SDRTask",
-    "ScanResult",
-    "RecordingResult",
-    "AnalysisResult",
-    "WorkflowPhase",
-    "WorkflowState",
     # Observability
     "AuditEntry",
     "AuditEventType",

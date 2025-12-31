@@ -18,9 +18,10 @@ import duckdb
 from sdr_toolkit.storage.models import (
     Asset,
     NetworkScan,
-    RFCapture,
     RFProtocol,
     ScanSession,
+    Signal,
+    SignalState,
 )
 
 if TYPE_CHECKING:
@@ -325,67 +326,132 @@ class UnifiedDB:
         return Asset(**data)
 
     # =========================================================================
-    # RF Capture Operations
+    # Signal Operations (unified signals table)
     # =========================================================================
 
-    def record_rf_capture(self, capture: RFCapture) -> str:
-        """Record an RF signal capture.
+    def record_signal(self, signal: Signal) -> str:
+        """Record a signal detection.
 
         Args:
-            capture: RFCapture to store.
+            signal: Signal to store.
 
         Returns:
-            Capture ID.
+            Signal ID.
         """
         self.conn.execute(
             """
-            INSERT INTO rf_captures (
-                capture_id, asset_id, scan_id, frequency_hz, power_db,
-                timestamp, sigmf_path, rf_protocol, annotations
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO signals (
+                signal_id, frequency_hz, power_db, bandwidth_hz, freq_band,
+                first_seen, last_seen, detection_count, state,
+                survey_id, segment_id, scan_id, sigmf_path,
+                rf_protocol, annotations, notes, promoted_asset_id,
+                location_name, year, month
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
-                capture.capture_id,
-                capture.asset_id,
-                capture.scan_id,
-                capture.frequency_hz,
-                capture.power_db,
-                capture.timestamp,
-                str(capture.sigmf_path) if capture.sigmf_path else None,
-                capture.rf_protocol.value if capture.rf_protocol else None,
-                json.dumps(capture.annotations) if capture.annotations else None,
+                signal.signal_id,
+                signal.frequency_hz,
+                signal.power_db,
+                signal.bandwidth_hz,
+                signal.freq_band,
+                signal.first_seen,
+                signal.last_seen,
+                signal.detection_count,
+                signal.state.value,
+                signal.survey_id,
+                signal.segment_id,
+                signal.scan_id,
+                str(signal.sigmf_path) if signal.sigmf_path else None,
+                signal.rf_protocol.value if signal.rf_protocol else "unknown",
+                json.dumps(signal.annotations) if signal.annotations else None,
+                signal.notes,
+                signal.promoted_asset_id,
+                signal.location_name,
+                signal.year,
+                signal.month,
             ],
         )
-        logger.debug("Recorded RF capture: %s", capture.capture_id)
-        return capture.capture_id
+        logger.debug("Recorded signal: %s at %.3f MHz", signal.signal_id, signal.frequency_mhz)
+        return signal.signal_id
 
-    def get_captures_by_scan(self, scan_id: str) -> list[RFCapture]:
-        """Get all captures from a scan session.
+    def get_signals_by_survey(self, survey_id: str) -> list[Signal]:
+        """Get all signals from a survey.
 
         Args:
-            scan_id: Scan session ID.
+            survey_id: Survey ID.
 
         Returns:
-            List of RF captures.
+            List of signals.
         """
         results = self.conn.execute(
-            "SELECT * FROM rf_captures WHERE scan_id = ? ORDER BY frequency_hz",
-            [scan_id],
+            "SELECT * FROM signals WHERE survey_id = ? ORDER BY frequency_hz",
+            [survey_id],
         ).fetchall()
 
-        captures = []
-        for row in results:
-            columns = [desc[0] for desc in self.conn.description]
-            data = dict(zip(columns, row, strict=False))
-            if data.get("annotations"):
-                data["annotations"] = json.loads(data["annotations"])
-            else:
-                data["annotations"] = {}
-            if data.get("sigmf_path"):
-                data["sigmf_path"] = Path(data["sigmf_path"])
-            captures.append(RFCapture(**data))
+        return [self._row_to_signal(row) for row in results]
 
-        return captures
+    def get_signals_by_location(self, location_name: str) -> list[Signal]:
+        """Get all signals from a location.
+
+        Args:
+            location_name: Location name.
+
+        Returns:
+            List of signals.
+        """
+        results = self.conn.execute(
+            "SELECT * FROM signals WHERE location_name = ? ORDER BY frequency_hz",
+            [location_name],
+        ).fetchall()
+
+        return [self._row_to_signal(row) for row in results]
+
+    def get_signals_by_state(self, state: SignalState) -> list[Signal]:
+        """Get signals by lifecycle state.
+
+        Args:
+            state: Signal state to filter by.
+
+        Returns:
+            List of matching signals.
+        """
+        results = self.conn.execute(
+            "SELECT * FROM signals WHERE state = ? ORDER BY first_seen DESC",
+            [state.value],
+        ).fetchall()
+
+        return [self._row_to_signal(row) for row in results]
+
+    def update_signal_state(self, signal_id: str, state: SignalState, notes: str | None = None) -> None:
+        """Update signal lifecycle state.
+
+        Args:
+            signal_id: Signal ID.
+            state: New state.
+            notes: Optional notes about state change.
+        """
+        self.conn.execute(
+            """
+            UPDATE signals SET state = ?, notes = COALESCE(?, notes)
+            WHERE signal_id = ?
+            """,
+            [state.value, notes, signal_id],
+        )
+        logger.debug("Updated signal %s state to %s", signal_id, state.value)
+
+    def _row_to_signal(self, row: tuple[Any, ...]) -> Signal:
+        """Convert database row to Signal model."""
+        columns = [desc[0] for desc in self.conn.description]
+        data = dict(zip(columns, row, strict=False))
+
+        if data.get("annotations"):
+            data["annotations"] = json.loads(data["annotations"])
+        else:
+            data["annotations"] = {}
+        if data.get("sigmf_path"):
+            data["sigmf_path"] = Path(data["sigmf_path"])
+
+        return Signal(**data)
 
     # =========================================================================
     # Network Scan Operations
@@ -522,7 +588,7 @@ class UnifiedDB:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         if tables is None:
-            tables = ["assets", "rf_captures", "network_scans", "scan_sessions"]
+            tables = ["assets", "signals", "network_scans", "scan_sessions"]
 
         exported: dict[str, Path] = {}
 
@@ -576,7 +642,7 @@ class UnifiedDB:
         stats: dict[str, Any] = {}
 
         # Table counts
-        for table in ["assets", "rf_captures", "network_scans", "scan_sessions"]:
+        for table in ["assets", "signals", "network_scans", "scan_sessions"]:
             count = self.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]  # noqa: S608
             stats[f"{table}_count"] = count
 

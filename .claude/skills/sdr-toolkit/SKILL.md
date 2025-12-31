@@ -48,8 +48,22 @@ export DYLD_LIBRARY_PATH=/opt/homebrew/lib
 ```
 
 ## Data
-- `data/unified.duckdb` - Persistent storage
-- `recordings/` - IQ samples
+- `data/unified.duckdb` - DuckDB persistent storage
+- `data/delta/signals` - Delta Lake for time travel queries
+- `recordings/` - IQ samples (SigMF format)
+
+### Schema (Survey-First Model)
+All scans create surveys → signals go to unified `signals` table.
+
+| Table | Purpose |
+|-------|---------|
+| `signals` | All RF detections with lifecycle |
+| `assets` | Canonical CMDB inventory |
+| `spectrum_surveys` | Survey orchestration |
+| `survey_segments` | Segment definitions |
+| `scan_sessions` | Audit log |
+
+**Delta Lake:** Partitioned by `location_name/year/month` with time travel for baseline comparison.
 
 ## Reference
 - [Best Practices](best-practices.md)
