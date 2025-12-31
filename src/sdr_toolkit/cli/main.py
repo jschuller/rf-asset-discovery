@@ -6,10 +6,15 @@ import argparse
 import logging
 import sys
 
+from sdr_toolkit.apps.am_radio import AMRadio
 from sdr_toolkit.apps.fm_radio import FMRadio
 from sdr_toolkit.apps.recorder import SignalRecorder
 from sdr_toolkit.apps.scanner import SpectrumScanner
 from sdr_toolkit.core.config import FM_BAND_END_MHZ, FM_BAND_START_MHZ
+
+# Aircraft band constants
+AIRCRAFT_BAND_START_MHZ = 118.0
+AIRCRAFT_BAND_END_MHZ = 137.0
 
 
 def setup_logging(verbose: bool) -> None:
@@ -80,6 +85,95 @@ def fm_radio() -> None:
 
     try:
         radio = FMRadio(
+            freq_mhz=args.freq,
+            gain=gain,
+            device_index=args.device,
+        )
+        radio.play(duration=args.duration)
+    except KeyboardInterrupt:
+        print("\nStopped")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def am_radio() -> None:
+    """AM Radio CLI entry point (aircraft band)."""
+    parser = argparse.ArgumentParser(
+        description="AM Radio - Listen to AM signals (aircraft band, etc.)"
+    )
+    parser.add_argument(
+        "-f",
+        "--freq",
+        type=float,
+        default=119.1,
+        help="Frequency in MHz (default: 119.1 JFK Tower)",
+    )
+    parser.add_argument(
+        "-g",
+        "--gain",
+        type=str,
+        default="auto",
+        help="Gain in dB or 'auto' (default: auto)",
+    )
+    parser.add_argument(
+        "-d",
+        "--duration",
+        type=float,
+        default=None,
+        help="Duration in seconds (default: indefinite)",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output",
+    )
+    parser.add_argument(
+        "--device",
+        type=int,
+        default=0,
+        help="SDR device index (default: 0)",
+    )
+    parser.add_argument(
+        "--aircraft",
+        action="store_true",
+        help="Show common NYC aircraft frequencies",
+    )
+
+    args = parser.parse_args()
+    setup_logging(args.verbose)
+
+    if args.aircraft:
+        print("NYC Area Aircraft Frequencies:")
+        print("-" * 40)
+        print("  119.1 MHz : JFK Tower")
+        print("  118.7 MHz : LGA Tower")
+        print("  118.3 MHz : EWR Tower")
+        print("  119.5 MHz : TEB Tower")
+        print("  121.5 MHz : Emergency")
+        print("  125.95 MHz: NY Approach/Departure")
+        print("  128.55 MHz: NY ARTCC")
+        print()
+
+    # Parse gain
+    gain: float | str
+    if args.gain == "auto":
+        gain = "auto"
+    else:
+        try:
+            gain = float(args.gain)
+        except ValueError:
+            print(f"Error: Invalid gain value: {args.gain}", file=sys.stderr)
+            sys.exit(1)
+
+    print(f"AM Radio - Tuning to {args.freq} MHz")
+    if AIRCRAFT_BAND_START_MHZ <= args.freq <= AIRCRAFT_BAND_END_MHZ:
+        print("(Aircraft band)")
+    print("Press Ctrl+C to stop\n")
+
+    try:
+        radio = AMRadio(
             freq_mhz=args.freq,
             gain=gain,
             device_index=args.device,
