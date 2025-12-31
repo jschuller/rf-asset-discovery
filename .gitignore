@@ -72,9 +72,8 @@ Desktop.ini
 *.cfile
 *.wav
 
-# Data directories
-/data/captures/
-/data/recordings/
+# Data directories (runtime data, not committed)
+/data/
 /recordings/
 
 # Logs
