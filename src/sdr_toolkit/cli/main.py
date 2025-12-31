@@ -242,9 +242,33 @@ def scanner() -> None:
         action="store_true",
         help="Quick scan of FM broadcast band",
     )
+    parser.add_argument(
+        "--aircraft",
+        action="store_true",
+        help="Quick scan of aircraft band (118-137 MHz)",
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        dest="show_all",
+        help="Show all detected signals (no limit)",
+    )
+    parser.add_argument(
+        "--plain",
+        action="store_true",
+        help="Use plain text output (no rich formatting)",
+    )
 
     args = parser.parse_args()
     setup_logging(args.verbose)
+
+    # Try to use rich display
+    use_rich = not args.plain
+    if use_rich:
+        try:
+            from sdr_toolkit.ui import display_scan_results, print_banner
+        except ImportError:
+            use_rich = False
 
     # Parse gain
     gain: float | str
@@ -258,13 +282,27 @@ def scanner() -> None:
             sys.exit(1)
 
     if args.fm:
-        print("Scanning FM broadcast band (87.5 - 108 MHz)...")
         start_freq = FM_BAND_START_MHZ
         end_freq = FM_BAND_END_MHZ
+        band_name = "FM Broadcast"
+    elif args.aircraft:
+        start_freq = AIRCRAFT_BAND_START_MHZ
+        end_freq = AIRCRAFT_BAND_END_MHZ
+        band_name = "Aircraft"
     else:
-        print(f"Scanning {args.start} - {args.end} MHz...")
         start_freq = args.start
         end_freq = args.end
+        band_name = None
+
+    if use_rich:
+        title = f"Scanning {start_freq} - {end_freq} MHz"
+        subtitle = f"({band_name})" if band_name else None
+        print_banner(title, subtitle)
+    else:
+        if band_name:
+            print(f"Scanning {band_name} band ({start_freq} - {end_freq} MHz)...")
+        else:
+            print(f"Scanning {start_freq} - {end_freq} MHz...")
 
     try:
         scanner_instance = SpectrumScanner(
@@ -279,17 +317,20 @@ def scanner() -> None:
             step_hz=args.step * 1e3,
         )
 
-        print(f"\nScan completed in {result.scan_time_seconds:.1f} seconds")
-        print(f"Noise floor: {result.noise_floor_db:.1f} dB")
-        print(f"Signals found: {len(result.peaks)}\n")
+        if use_rich:
+            display_scan_results(result, show_all=args.show_all)
+        else:
+            print(f"\nScan completed in {result.scan_time_seconds:.1f} seconds")
+            print(f"Noise floor: {result.noise_floor_db:.1f} dB")
+            print(f"Signals found: {len(result.peaks)}\n")
 
-        if result.peaks:
-            print("Detected signals:")
-            print("-" * 40)
-            for peak in result.peaks[:20]:  # Show top 20
-                print(f"  {peak.frequency_hz/1e6:8.3f} MHz : {peak.power_db:6.1f} dB")
-            if len(result.peaks) > 20:
-                print(f"  ... and {len(result.peaks) - 20} more")
+            if result.peaks:
+                print("Detected signals:")
+                print("-" * 40)
+                for peak in result.peaks[:20]:  # Show top 20
+                    print(f"  {peak.frequency_hz/1e6:8.3f} MHz : {peak.power_db:6.1f} dB")
+                if len(result.peaks) > 20:
+                    print(f"  ... and {len(result.peaks) - 20} more")
 
     except KeyboardInterrupt:
         print("\nScan cancelled")
