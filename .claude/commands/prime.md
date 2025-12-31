@@ -23,9 +23,19 @@ from pathlib import Path
 db_path = Path('data/unified.duckdb')
 if db_path.exists():
     with UnifiedDB(db_path) as db:
-        sessions = db.get_scan_sessions()
         assets = db.get_all_assets()
-        print(f'Scan sessions: {len(sessions)}')
+        # Survey tables
+        surveys = db.conn.execute('SELECT COUNT(*) FROM spectrum_surveys').fetchone()[0]
+        segments = db.conn.execute('SELECT COUNT(*) FROM survey_segments').fetchone()[0]
+        signals = db.conn.execute('SELECT COUNT(*) FROM survey_signals').fetchone()[0]
+        # Legacy scan tables
+        sessions = db.conn.execute('SELECT COUNT(*) FROM scan_sessions').fetchone()[0]
+        captures = db.conn.execute('SELECT COUNT(*) FROM rf_captures').fetchone()[0]
+        print(f'Spectrum surveys: {surveys}')
+        print(f'Survey segments: {segments}')
+        print(f'Survey signals: {signals}')
+        print(f'Scan sessions: {sessions}')
+        print(f'RF captures: {captures}')
         print(f'Assets discovered: {len(assets)}')
 else:
     print('No database yet')

@@ -20,6 +20,14 @@ uv run sdr-scan --fm              # FM broadcast
 uv run sdr-scan --aircraft        # Aircraft band
 uv run sdr-scan -s 400 -e 450     # Custom
 
+# Survey (comprehensive, resumable, multi-location)
+uv run sdr-survey create --name "Full Sweep" --full
+uv run sdr-survey create --name "Site A" -l "NYC Office" -a "Discone"
+uv run sdr-survey resume <id>     # Resume survey
+uv run sdr-survey status <id>     # Check progress
+uv run sdr-survey list -l "NYC Office"  # List by location
+uv run sdr-survey next <id>       # Single segment (Ralph)
+
 # IoT Discovery
 uv run sdr-iot -f 433.92M,315M --db data/unified.duckdb
 

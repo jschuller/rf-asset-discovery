@@ -115,6 +115,130 @@ CREATE INDEX IF NOT EXISTS idx_sessions_type ON scan_sessions(scan_type);
 CREATE INDEX IF NOT EXISTS idx_sessions_time ON scan_sessions(start_time);
 
 -- ============================================================================
+-- Spectrum Survey Tables
+-- ============================================================================
+
+-- Spectrum survey sessions (multi-segment, resumable)
+CREATE TABLE IF NOT EXISTS spectrum_surveys (
+    survey_id VARCHAR PRIMARY KEY,
+    name VARCHAR NOT NULL,
+    status VARCHAR NOT NULL DEFAULT 'pending',  -- pending, in_progress, paused, completed, failed
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    started_at TIMESTAMP,
+    completed_at TIMESTAMP,
+    last_activity_at TIMESTAMP,
+
+    -- Coverage configuration
+    start_freq_hz DOUBLE NOT NULL DEFAULT 24000000,
+    end_freq_hz DOUBLE NOT NULL DEFAULT 1766000000,
+
+    -- Progress tracking
+    total_segments INTEGER NOT NULL DEFAULT 0,
+    completed_segments INTEGER NOT NULL DEFAULT 0,
+    completion_pct DOUBLE NOT NULL DEFAULT 0.0,
+
+    -- Results
+    total_signals_found INTEGER NOT NULL DEFAULT 0,
+    unique_frequencies INTEGER NOT NULL DEFAULT 0,
+
+    -- Configuration and results
+    config JSON,
+    results_summary JSON,
+
+    -- Phase 2: Location/Run Context
+    location_name VARCHAR,
+    location_gps_lat DOUBLE,
+    location_gps_lon DOUBLE,
+    environment VARCHAR,
+    antenna_type VARCHAR,
+    sdr_device VARCHAR,
+    gain_setting VARCHAR,
+    run_number INTEGER,
+    timezone VARCHAR,
+    conditions_notes VARCHAR,
+    baseline_survey_id VARCHAR
+);
+
+-- Survey segments (individual scan blocks within a survey)
+CREATE TABLE IF NOT EXISTS survey_segments (
+    segment_id VARCHAR PRIMARY KEY,
+    survey_id VARCHAR NOT NULL,  -- FK removed due to DuckDB UPDATE bug
+
+    -- Segment definition
+    name VARCHAR,
+    start_freq_hz DOUBLE NOT NULL,
+    end_freq_hz DOUBLE NOT NULL,
+    priority INTEGER NOT NULL DEFAULT 3,  -- 1=fine (known bands), 2=medium, 3=coarse (gaps)
+    step_hz DOUBLE NOT NULL,
+    dwell_time_ms DOUBLE NOT NULL DEFAULT 100,
+
+    -- Status tracking
+    status VARCHAR NOT NULL DEFAULT 'pending',  -- pending, in_progress, completed, failed, skipped
+    scan_id VARCHAR,  -- Link to scan_sessions when executed
+
+    -- Timing
+    scheduled_at TIMESTAMP,
+    started_at TIMESTAMP,
+    completed_at TIMESTAMP,
+
+    -- Results
+    signals_found INTEGER DEFAULT 0,
+    noise_floor_db DOUBLE,
+    scan_time_seconds DOUBLE,
+    error_message VARCHAR
+);
+
+-- Auto-discovered signals (promoted to assets based on recurrence)
+CREATE TABLE IF NOT EXISTS survey_signals (
+    signal_id VARCHAR PRIMARY KEY,
+    survey_id VARCHAR NOT NULL,  -- FK removed due to DuckDB UPDATE bug
+    segment_id VARCHAR,
+
+    -- Signal characteristics
+    frequency_hz DOUBLE NOT NULL,
+    power_db DOUBLE NOT NULL,
+    bandwidth_hz DOUBLE,
+
+    -- Tracking
+    first_seen TIMESTAMP NOT NULL,
+    last_seen TIMESTAMP NOT NULL,
+    detection_count INTEGER DEFAULT 1,
+
+    -- ServiceNow-style state management
+    state VARCHAR NOT NULL DEFAULT 'discovered',  -- discovered, confirmed, dismissed, promoted
+    promoted_asset_id VARCHAR,  -- FK removed due to DuckDB UPDATE bug
+    notes VARCHAR
+);
+
+-- Survey indexes
+CREATE INDEX IF NOT EXISTS idx_surveys_status ON spectrum_surveys(status);
+CREATE INDEX IF NOT EXISTS idx_surveys_created ON spectrum_surveys(created_at);
+CREATE INDEX IF NOT EXISTS idx_segments_survey ON survey_segments(survey_id);
+CREATE INDEX IF NOT EXISTS idx_segments_status ON survey_segments(status, priority);
+CREATE INDEX IF NOT EXISTS idx_segments_freq ON survey_segments(start_freq_hz);
+CREATE INDEX IF NOT EXISTS idx_survey_signals_survey ON survey_signals(survey_id);
+CREATE INDEX IF NOT EXISTS idx_survey_signals_freq ON survey_signals(frequency_hz);
+CREATE INDEX IF NOT EXISTS idx_survey_signals_state ON survey_signals(state);
+
+-- Phase 2: Reusable location definitions
+CREATE TABLE IF NOT EXISTS survey_locations (
+    location_id VARCHAR PRIMARY KEY,
+    name VARCHAR NOT NULL UNIQUE,
+    description VARCHAR,
+    gps_lat DOUBLE,
+    gps_lon DOUBLE,
+    environment VARCHAR,
+    default_antenna VARCHAR,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_survey_at TIMESTAMP,
+    total_surveys INTEGER DEFAULT 0
+);
+
+-- Phase 2 indexes
+CREATE INDEX IF NOT EXISTS idx_surveys_location ON spectrum_surveys(location_name);
+CREATE INDEX IF NOT EXISTS idx_locations_name ON survey_locations(name);
+
+-- ============================================================================
 -- Views for Common Queries
 -- ============================================================================
 
@@ -171,3 +295,17 @@ FROM assets
 WHERE purdue_level IS NOT NULL
 GROUP BY purdue_level
 ORDER BY purdue_level;
+
+-- Phase 2: Survey comparison (baseline vs current)
+CREATE OR REPLACE VIEW survey_comparison AS
+SELECT
+    s1.survey_id as current_id,
+    s1.name as current_name,
+    s1.location_name,
+    s1.run_number,
+    s1.total_signals_found as current_signals,
+    s2.survey_id as baseline_id,
+    s2.total_signals_found as baseline_signals,
+    s1.total_signals_found - COALESCE(s2.total_signals_found, 0) as signal_delta
+FROM spectrum_surveys s1
+LEFT JOIN spectrum_surveys s2 ON s1.baseline_survey_id = s2.survey_id;

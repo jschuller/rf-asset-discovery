@@ -816,6 +816,324 @@ def spectrum_watch() -> None:
         sys.exit(1)
 
 
+def spectrum_survey() -> None:
+    """Spectrum Survey CLI entry point."""
+    parser = argparse.ArgumentParser(
+        description="Spectrum Survey - Comprehensive frequency coverage with persistence"
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # Create new survey
+    create_parser = subparsers.add_parser("create", help="Create a new survey")
+    create_parser.add_argument(
+        "--name",
+        type=str,
+        required=True,
+        help="Survey name/description",
+    )
+    create_parser.add_argument(
+        "--full",
+        action="store_true",
+        help="Full 24-1766 MHz coverage with gap filling (default)",
+    )
+    create_parser.add_argument(
+        "--priority-only",
+        action="store_true",
+        help="Only scan priority bands (faster, no gaps)",
+    )
+    create_parser.add_argument(
+        "-s",
+        "--start",
+        type=float,
+        default=24.0,
+        help="Start frequency in MHz (default: 24)",
+    )
+    create_parser.add_argument(
+        "-e",
+        "--end",
+        type=float,
+        default=1766.0,
+        help="End frequency in MHz (default: 1766)",
+    )
+    create_parser.add_argument(
+        "--db",
+        type=str,
+        default="data/unified.duckdb",
+        help="DuckDB path (default: data/unified.duckdb)",
+    )
+    # Phase 2: Location/Run Context
+    create_parser.add_argument(
+        "-l",
+        "--location",
+        type=str,
+        default=None,
+        help="Location name for run differentiation (e.g., 'NYC Office')",
+    )
+    create_parser.add_argument(
+        "-a",
+        "--antenna",
+        type=str,
+        default=None,
+        help="Antenna type (e.g., 'Discone', 'Stock RTL-SDR')",
+    )
+    create_parser.add_argument(
+        "--notes",
+        type=str,
+        default=None,
+        help="Conditions notes (e.g., 'Clear weather')",
+    )
+
+    # Resume survey
+    resume_parser = subparsers.add_parser("resume", help="Resume an existing survey")
+    resume_parser.add_argument("survey_id", help="Survey ID to resume")
+    resume_parser.add_argument(
+        "--max",
+        type=int,
+        default=None,
+        help="Maximum segments to scan this run",
+    )
+    resume_parser.add_argument(
+        "--db",
+        type=str,
+        default="data/unified.duckdb",
+        help="DuckDB path",
+    )
+
+    # Execute next segment (for Ralph loops)
+    next_parser = subparsers.add_parser("next", help="Execute next pending segment")
+    next_parser.add_argument("survey_id", help="Survey ID")
+    next_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output as JSON for Ralph integration",
+    )
+    next_parser.add_argument(
+        "--db",
+        type=str,
+        default="data/unified.duckdb",
+        help="DuckDB path",
+    )
+
+    # Status check
+    status_parser = subparsers.add_parser("status", help="Show survey status")
+    status_parser.add_argument(
+        "survey_id",
+        nargs="?",
+        default=None,
+        help="Survey ID (omit to list all)",
+    )
+    status_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output as JSON",
+    )
+    status_parser.add_argument(
+        "--db",
+        type=str,
+        default="data/unified.duckdb",
+        help="DuckDB path",
+    )
+
+    # List surveys
+    list_parser = subparsers.add_parser("list", help="List all surveys")
+    list_parser.add_argument(
+        "--db",
+        type=str,
+        default="data/unified.duckdb",
+        help="DuckDB path",
+    )
+    list_parser.add_argument(
+        "-l",
+        "--location",
+        type=str,
+        default=None,
+        help="Filter by location name",
+    )
+
+    # Common options
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output",
+    )
+
+    args = parser.parse_args()
+    setup_logging(args.verbose if hasattr(args, "verbose") else False)
+
+    # Import survey modules
+    try:
+        import json as json_module
+        from pathlib import Path
+
+        from sdr_toolkit.storage import UnifiedDB
+        from sdr_toolkit.apps.survey.manager import SurveyManager
+        from sdr_toolkit.apps.survey.executor import SurveyExecutor
+        from sdr_toolkit.apps.survey.band_catalog import (
+            estimate_survey_duration,
+            format_duration,
+        )
+    except ImportError as e:
+        print(f"Error: Survey modules not available: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Get database path
+    db_path = Path(getattr(args, "db", "data/unified.duckdb"))
+
+    try:
+        with UnifiedDB(db_path) as db:
+            manager = SurveyManager(db)
+
+            if args.command == "create":
+                # Create new survey
+                full_coverage = not args.priority_only
+
+                survey = manager.create_survey(
+                    name=args.name,
+                    start_hz=args.start * 1e6,
+                    end_hz=args.end * 1e6,
+                    full_coverage=full_coverage,
+                    # Phase 2: Location/Run Context
+                    location_name=args.location,
+                    antenna_type=args.antenna,
+                    conditions_notes=args.notes,
+                )
+
+                segments = manager.get_segments(survey.survey_id)
+                est_time = estimate_survey_duration(segments)
+
+                print(f"Created survey: {survey.name}")
+                print(f"  ID: {survey.survey_id}")
+                print(f"  Segments: {len(segments)}")
+                print(f"  Estimated time: {format_duration(est_time)}")
+                if survey.location_name:
+                    print(f"  Location: {survey.location_name} (Run #{survey.run_number})")
+                if survey.antenna_type:
+                    print(f"  Antenna: {survey.antenna_type}")
+                print(f"\nTo start: uv run sdr-survey resume {survey.survey_id}")
+
+            elif args.command == "resume":
+                # Resume existing survey
+                survey = manager.get_survey(args.survey_id)
+                if not survey:
+                    print(f"Error: Survey {args.survey_id} not found", file=sys.stderr)
+                    sys.exit(1)
+
+                executor = SurveyExecutor(manager, db)
+                result = executor.run_continuous(
+                    args.survey_id,
+                    max_segments=args.max,
+                )
+
+                print(f"\nSurvey {'completed' if result.complete else 'paused'}")
+                print(f"  Segments this run: {result.segments_completed}")
+                print(f"  Signals found: {result.total_signals}")
+                print(f"  Time: {format_duration(result.total_time_seconds)}")
+
+                if result.errors:
+                    print("\nErrors:")
+                    for err in result.errors:
+                        print(f"  - {err}")
+
+            elif args.command == "next":
+                # Execute single segment (Ralph integration)
+                segment = manager.get_next_segment(args.survey_id)
+
+                if segment is None:
+                    if args.json:
+                        print(json_module.dumps({
+                            "complete": True,
+                            "message": "Survey complete - no pending segments",
+                        }))
+                    else:
+                        print("Survey complete - no pending segments")
+                        print("<promise>SURVEY COMPLETE</promise>")
+                    sys.exit(0)
+
+                executor = SurveyExecutor(manager, db)
+                result = executor.execute_segment(segment)
+
+                if args.json:
+                    output = {
+                        "segment": {
+                            "id": segment.segment_id,
+                            "name": segment.name,
+                            "start_mhz": segment.start_freq_hz / 1e6,
+                            "end_mhz": segment.end_freq_hz / 1e6,
+                        },
+                        "result": result.to_dict(),
+                        "survey_state": manager.get_ralph_state(args.survey_id),
+                    }
+                    print(json_module.dumps(output, indent=2, default=str))
+                else:
+                    survey = manager.get_survey(args.survey_id)
+                    print(f"Scanned: {segment.name}")
+                    print(f"  Signals: {result.signals_found}")
+                    print(f"  Time: {result.scan_time_seconds:.1f}s")
+                    if survey:
+                        print(f"  Progress: {survey.completion_pct:.1f}%")
+
+            elif args.command == "status":
+                if args.survey_id:
+                    # Single survey status
+                    survey = manager.get_survey(args.survey_id)
+                    if not survey:
+                        print(f"Error: Survey {args.survey_id} not found", file=sys.stderr)
+                        sys.exit(1)
+
+                    if args.json:
+                        print(json_module.dumps(manager.get_ralph_state(args.survey_id), indent=2, default=str))
+                    else:
+                        segments = manager.get_segments(survey.survey_id)
+                        pending = [s for s in segments if s.status.value == "pending"]
+                        est_remaining = estimate_survey_duration(pending)
+
+                        print(f"Survey: {survey.name}")
+                        print(f"  ID: {survey.survey_id}")
+                        print(f"  Status: {survey.status.value}")
+                        print(f"  Progress: {survey.completed_segments}/{survey.total_segments} ({survey.completion_pct:.1f}%)")
+                        print(f"  Signals: {survey.total_signals_found}")
+                        print(f"  Remaining: {format_duration(est_remaining)}")
+                else:
+                    # List all surveys
+                    surveys = manager.list_surveys()
+                    if not surveys:
+                        print("No surveys found")
+                    else:
+                        print(f"{'ID':<36} {'Name':<25} {'Status':<12} {'Progress'}")
+                        print("-" * 90)
+                        for s in surveys:
+                            print(f"{s.survey_id} {s.name:<25} {s.status.value:<12} {s.completion_pct:.1f}%")
+
+            elif args.command == "list":
+                if args.location:
+                    surveys = manager.list_surveys_by_location(args.location)
+                    header = f"Surveys at '{args.location}'"
+                else:
+                    surveys = manager.list_surveys()
+                    header = "All Surveys"
+
+                if not surveys:
+                    print(f"No surveys found{' at ' + args.location if args.location else ''}")
+                else:
+                    print(f"\n{header}")
+                    print(f"{'ID':<36} {'Name':<20} {'Location':<15} {'Run':<4} {'Status':<12} {'Progress'}")
+                    print("-" * 105)
+                    for s in surveys:
+                        loc = (s.location_name or "-")[:14]
+                        run = str(s.run_number) if s.run_number else "-"
+                        print(f"{s.survey_id} {s.name:<20} {loc:<15} {run:<4} {s.status.value:<12} {s.completion_pct:.1f}%")
+
+    except KeyboardInterrupt:
+        print("\nCancelled")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        if args.verbose if hasattr(args, "verbose") else False:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     # Default to fm_radio if run directly
     fm_radio()
