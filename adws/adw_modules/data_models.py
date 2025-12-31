@@ -224,6 +224,21 @@ class WorkflowConfig(BaseModel):
     save_results: bool = True
     output_dir: Path = Field(default=Path("./adw_outputs"))
 
+    # Database persistence (opt-in)
+    db_path: Path | None = Field(
+        default=None,
+        description="Path to UnifiedDB for result persistence. If None, results are JSON only.",
+    )
+    survey_id: str | None = Field(
+        default=None,
+        description="Survey ID to link results. Requires db_path.",
+    )
+
+    @property
+    def persist_to_db(self) -> bool:
+        """Check if database persistence is enabled."""
+        return self.db_path is not None
+
 
 # ============================================================================
 # FM Band Helpers

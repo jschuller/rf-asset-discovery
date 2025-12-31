@@ -258,9 +258,26 @@ def scanner() -> None:
         action="store_true",
         help="Use plain text output (no rich formatting)",
     )
+    parser.add_argument(
+        "--db",
+        type=str,
+        default=None,
+        help="Store results in UnifiedDB (e.g., data/unified.duckdb)",
+    )
+    parser.add_argument(
+        "--survey-id",
+        type=str,
+        default=None,
+        help="Link results to a survey (requires --db)",
+    )
 
     args = parser.parse_args()
     setup_logging(args.verbose)
+
+    # Validate survey-id requires db
+    if args.survey_id and not args.db:
+        print("Error: --survey-id requires --db", file=sys.stderr)
+        sys.exit(1)
 
     # Try to use rich display
     use_rich = not args.plain
@@ -304,6 +321,20 @@ def scanner() -> None:
         else:
             print(f"Scanning {start_freq} - {end_freq} MHz...")
 
+    # Setup database if requested
+    db = None
+    scan_id = None
+    if args.db:
+        try:
+            from pathlib import Path
+
+            from sdr_toolkit.storage import UnifiedDB
+
+            db = UnifiedDB(Path(args.db))
+            db.connect()
+        except Exception as e:
+            print(f"Warning: Could not open database: {e}", file=sys.stderr)
+
     try:
         scanner_instance = SpectrumScanner(
             gain=gain,
@@ -332,11 +363,60 @@ def scanner() -> None:
                 if len(result.peaks) > 20:
                     print(f"  ... and {len(result.peaks) - 20} more")
 
+        # Store results in database if requested
+        if db:
+            from sdr_toolkit.storage.models import RFCapture
+
+            scan_id = db.start_scan_session(
+                "rf_spectrum",
+                {
+                    "start_freq_hz": start_freq * 1e6,
+                    "end_freq_hz": end_freq * 1e6,
+                    "step_hz": args.step * 1e3,
+                    "threshold_db": args.threshold,
+                    "gain": str(gain),
+                    "band_name": band_name,
+                    "survey_id": args.survey_id,
+                },
+            )
+
+            # Record each peak as RF capture
+            for peak in result.peaks:
+                capture = RFCapture(
+                    scan_id=scan_id,
+                    frequency_hz=peak.frequency_hz,
+                    power_db=peak.power_db,
+                    annotations={
+                        "noise_floor_db": result.noise_floor_db,
+                        "snr_db": peak.power_db - result.noise_floor_db,
+                    },
+                )
+                db.record_rf_capture(capture)
+
+            # End session with summary
+            db.end_scan_session(
+                scan_id,
+                {
+                    "signals_found": len(result.peaks),
+                    "noise_floor_db": result.noise_floor_db,
+                    "scan_time_seconds": result.scan_time_seconds,
+                },
+            )
+            print(f"\nResults stored in: {args.db}")
+            print(f"  Scan ID: {scan_id}")
+            print(f"  Captures: {len(result.peaks)}")
+
     except KeyboardInterrupt:
         print("\nScan cancelled")
+        # Still end session if interrupted
+        if db and scan_id:
+            db.end_scan_session(scan_id, {"status": "cancelled"})
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
+    finally:
+        if db:
+            db.close()
 
 
 def recorder() -> None:
@@ -389,6 +469,12 @@ def recorder() -> None:
         default=0,
         help="SDR device index (default: 0)",
     )
+    parser.add_argument(
+        "--db",
+        type=str,
+        default=None,
+        help="Store recording metadata in UnifiedDB (e.g., data/unified.duckdb)",
+    )
 
     args = parser.parse_args()
     setup_logging(args.verbose)
@@ -403,6 +489,19 @@ def recorder() -> None:
         except ValueError:
             print(f"Error: Invalid gain value: {args.gain}", file=sys.stderr)
             sys.exit(1)
+
+    # Setup database if requested
+    db = None
+    if args.db:
+        try:
+            from pathlib import Path
+
+            from sdr_toolkit.storage import UnifiedDB
+
+            db = UnifiedDB(Path(args.db))
+            db.connect()
+        except Exception as e:
+            print(f"Warning: Could not open database: {e}", file=sys.stderr)
 
     try:
         recorder_instance = SignalRecorder(
@@ -434,11 +533,51 @@ def recorder() -> None:
         print(f"Duration: {result.duration_seconds:.1f} seconds")
         print(f"Samples: {result.num_samples:,}")
 
+        # Store recording in database if requested
+        if db:
+            from sdr_toolkit.storage.models import RFCapture
+
+            scan_id = db.start_scan_session(
+                "recording",
+                {
+                    "center_freq_hz": args.freq * 1e6,
+                    "duration_seconds": args.duration,
+                    "gain": str(gain),
+                    "type": "fm_audio" if args.fm else "iq",
+                },
+            )
+
+            capture = RFCapture(
+                scan_id=scan_id,
+                frequency_hz=args.freq * 1e6,
+                power_db=0.0,  # Not measured during recording
+                sigmf_path=result.path,
+                annotations={
+                    "duration_seconds": result.duration_seconds,
+                    "num_samples": result.num_samples,
+                    "type": "fm_audio" if args.fm else "iq",
+                },
+            )
+            db.record_rf_capture(capture)
+
+            db.end_scan_session(
+                scan_id,
+                {
+                    "output_path": str(result.path),
+                    "duration_seconds": result.duration_seconds,
+                    "num_samples": result.num_samples,
+                },
+            )
+            print(f"\nRecording indexed in: {args.db}")
+
     except KeyboardInterrupt:
         print("\nRecording cancelled")
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
+    finally:
+        if db:
+            db.close()
 
 
 def iot_scan() -> None:
@@ -482,6 +621,12 @@ def iot_scan() -> None:
         help="Store discoveries in UnifiedDB",
     )
     parser.add_argument(
+        "--survey-id",
+        type=str,
+        default=None,
+        help="Link discoveries to a survey (requires --db)",
+    )
+    parser.add_argument(
         "-g",
         "--gain",
         type=str,
@@ -508,6 +653,11 @@ def iot_scan() -> None:
 
     args = parser.parse_args()
     setup_logging(args.verbose)
+
+    # Validate survey-id requires db
+    if args.survey_id and not args.db:
+        print("Error: --survey-id requires --db", file=sys.stderr)
+        sys.exit(1)
 
     # Import IoT modules
     try:
@@ -561,7 +711,13 @@ def iot_scan() -> None:
     # Create registry
     registry = DeviceRegistry(db=db)
     if db:
-        scan_id = db.start_scan_session("iot", {"frequencies": frequencies})
+        scan_id = db.start_scan_session(
+            "iot",
+            {
+                "frequencies": frequencies,
+                "survey_id": args.survey_id,
+            },
+        )
         registry.set_scan_id(scan_id)
 
     print(f"IoT Scanner - Monitoring {', '.join(frequencies)}")

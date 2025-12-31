@@ -187,6 +187,20 @@ def run_record_workflow(
         save_recording_result(recording_result, output_path)
         state.log(f"Results saved to {output_path}")
 
+    # Persist to database if configured
+    if config.persist_to_db and config.db_path:
+        from adws.adw_modules.survey_persistence import persist_recording_result
+
+        scan_id = persist_recording_result(
+            recording_result,
+            config.db_path,
+            survey_id=config.survey_id,
+        )
+        if scan_id:
+            state.log(f"Persisted to database: {config.db_path} (scan_id={scan_id})")
+        else:
+            state.log("Warning: Database persistence failed")
+
     # Generate and log report
     report = generate_report(recording_result=recording_result)
     logger.info("\n%s", report)
@@ -238,12 +252,20 @@ def main() -> int:
     parser.add_argument(
         "--adw-output", type=str, default="./adw_outputs", help="ADW output directory"
     )
+    parser.add_argument(
+        "--db", type=str, default=None, help="Store results in UnifiedDB"
+    )
+    parser.add_argument(
+        "--survey-id", type=str, default=None, help="Link results to a survey"
+    )
 
     args = parser.parse_args()
 
     config = WorkflowConfig(
         model=args.model,
         output_dir=Path(args.adw_output),
+        db_path=Path(args.db) if args.db else None,
+        survey_id=args.survey_id,
     )
 
     state = run_record_workflow(
