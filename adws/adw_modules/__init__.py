@@ -14,6 +14,12 @@ from adws.adw_modules.data_models import (
     WorkflowPhase,
     WorkflowState,
 )
+from adws.adw_modules.observability import (
+    AuditEntry,
+    AuditLogger,
+    ComplianceChecker,
+    SessionStats,
+)
 
 __all__ = [
     "AgentRequest",
@@ -26,4 +32,8 @@ __all__ = [
     "AnalysisResult",
     "WorkflowPhase",
     "WorkflowState",
+    "AuditEntry",
+    "AuditLogger",
+    "ComplianceChecker",
+    "SessionStats",
 ]
