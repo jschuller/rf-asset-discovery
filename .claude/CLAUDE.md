@@ -39,7 +39,8 @@ uv run sdr-am -f 119.1            # Aircraft AM
 
 ```
 /prime           Context priming (start here)
-/survey          Spectrum survey (comprehensive + ad-hoc scans)
+/survey          Spectrum survey (quick + comprehensive)
+/capture         Record + analyze signals
 /fm_radio        FM listening
 /iot             IoT device discovery
 /watch           Autonomous monitoring

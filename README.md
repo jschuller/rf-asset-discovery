@@ -1,167 +1,103 @@
 # SDR Toolkit
 
-Production-quality RTL-SDR toolkit with unified asset storage and agentic capabilities.
+RTL-SDR toolkit with survey-first storage and agentic monitoring.
 
-## Features
-
-| Category | Capabilities |
-|----------|--------------|
-| **Radio** | FM broadcast, AM/aircraft band (118-137 MHz) |
-| **Scanning** | Spectrum analysis, peak detection, noise floor estimation |
-| **Survey** | Multi-segment resumable surveys, signal state management |
-| **Recording** | IQ samples (SigMF), FM audio (WAV) |
-| **Decoding** | ADS-B aircraft, IoT devices (rtl_433) |
-| **Monitoring** | Autonomous spectrum watch, anomaly detection, push alerts |
-| **Storage** | DuckDB unified asset schema, Parquet export |
-| **Compliance** | NIST 800-213A, ServiceNow CMDB, ISA-95/Purdue |
-
-## Installation
+## Quick Start
 
 ```bash
-# Install with pip
-pip install -e ".[all]"
-
-# Or specific extras
-pip install -e ".[storage,ui]"  # DuckDB + Rich terminal
+brew install rtl-sdr rtl_433 && uv sync --all-extras
+export DYLD_LIBRARY_PATH=/opt/homebrew/lib
+uv run sdr-scan --fm
 ```
 
-### Platform Setup
-
-**macOS (Apple Silicon)**
-```bash
-brew install rtl-sdr rtl_433
-export DYLD_LIBRARY_PATH="/opt/homebrew/lib:$DYLD_LIBRARY_PATH"
-```
-
-**Linux**
-```bash
-sudo apt install librtlsdr-dev rtl-433
-echo "blacklist dvb_usb_rtl28xxu" | sudo tee /etc/modprobe.d/blacklist-rtlsdr.conf
-```
-
-## CLI Commands
+## CLI
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `sdr-fm` | FM radio playback | `sdr-fm -f 100.1 -g auto` |
-| `sdr-am` | AM/aircraft band | `sdr-am -f 119.1 --aircraft` |
-| `sdr-scan` | Spectrum scanner | `sdr-scan --fm` or `-s 433 -e 435` |
-| `sdr-survey` | Spectrum survey | `sdr-survey create "Full Sweep"` |
-| `sdr-record` | IQ/audio recorder | `sdr-record -f 100.1 -d 30 --fm` |
-| `sdr-iot` | IoT device discovery | `sdr-iot -f 433.92M -d 300` |
-| `sdr-watch` | Autonomous monitor | `sdr-watch "Watch aircraft band" --ntfy alerts` |
+| `sdr-scan` | Spectrum scanner | `sdr-scan --fm` `sdr-scan -s 433 -e 435` |
+| `sdr-survey` | Multi-segment survey | `sdr-survey create "Full"` `sdr-survey resume <id>` |
+| `sdr-record` | IQ/audio recorder | `sdr-record -f 101.9 -d 30` |
+| `sdr-iot` | IoT discovery | `sdr-iot -f 433.92M -d 300` |
+| `sdr-watch` | Autonomous monitor | `sdr-watch --band aircraft` |
+| `sdr-fm` | FM playback | `sdr-fm -f 101.9` |
+| `sdr-am` | AM/aircraft | `sdr-am -f 119.1` |
 
 ## Python API
 
-### Spectrum Scanning
 ```python
-from sdr_toolkit.apps import SpectrumScanner
-
-scanner = SpectrumScanner(threshold_db=-30)
-result = scanner.scan_fm_band()
-for peak in result.peaks[:5]:
-    print(f"{peak.frequency_hz/1e6:.1f} MHz: {peak.power_db:.1f} dB")
-```
-
-### IoT Device Discovery
-```python
-from sdr_toolkit.decoders.iot import RTL433Decoder, DeviceRegistry
-
-registry = DeviceRegistry()
-with RTL433Decoder(frequencies=["433.92M"]) as decoder:
-    for packet in decoder.stream_packets():
-        device = registry.process_packet(packet)
-        print(f"{device.model}: {device.protocol_type.value}")
-```
-
-### Unified Asset Storage
-```python
-from sdr_toolkit.storage import UnifiedDB, Asset, RFProtocol, auto_classify_asset
+from sdr_toolkit.storage import UnifiedDB, Signal, SignalState
+from sdr_toolkit.apps.survey import SurveyManager
 
 with UnifiedDB("data/unified.duckdb") as db:
-    asset = Asset(
-        name="Weather Station",
-        rf_frequency_hz=433.92e6,
-        rf_protocol=RFProtocol.WEATHER_STATION,
+    manager = SurveyManager(db)
+
+    # Create survey
+    survey = manager.create_adhoc_survey(
+        name="FM Scan",
+        start_hz=87.5e6,
+        end_hz=108e6,
+        location_name="NYC Office",
     )
-    auto_classify_asset(asset)  # Sets CMDB class, Purdue level
-    db.insert_asset(asset)
 
-    # Export for analysis
-    db.export_to_parquet("exports/")
-```
-
-### ADS-B Decoding
-```python
-from sdr_toolkit.decoders import decode_adsb_message
-
-msg = decode_adsb_message("8D4840D6202CC371C32CE0576098")
-print(f"ICAO: {msg.icao}, Callsign: {msg.callsign}")
-```
-
-### Autonomous Spectrum Watch
-```python
-import asyncio
-from adws import watch_from_intent
-
-async def main():
-    # Natural language configuration
-    watch = await watch_from_intent(
-        "Watch aircraft band, alert on 121.5 MHz emergency",
-        ntfy_topic="my-sdr-alerts",
+    # Record signal
+    signal = Signal(
+        survey_id=survey.survey_id,
+        frequency_hz=101.9e6,
+        power_db=-25.0,
+        location_name="NYC Office",
+        year=2025,
+        month=12,
     )
-    # Runs until stopped
-    await asyncio.sleep(3600)
-    await watch.stop()
+    db.record_signal(signal)
 
-asyncio.run(main())
+    # Promote to asset after 3+ detections
+    manager.update_signal_state(signal.signal_id, SignalState.PROMOTED)
 ```
+
+## Schema
+
+```mermaid
+flowchart LR
+    scan[sdr-scan] --> survey[spectrum_surveys]
+    survey --> signals[signals]
+    signals -->|3+ detections| assets[assets]
+    signals -->|Delta Lake| delta[(data/delta/signals)]
+```
+
+| Table | Purpose |
+|-------|---------|
+| `signals` | All RF detections with lifecycle (discovered → promoted) |
+| `spectrum_surveys` | Survey orchestration |
+| `survey_segments` | Segment definitions |
+| `assets` | Canonical CMDB inventory |
+| `scan_sessions` | Audit log |
+
+**Partition:** `location_name/year/month` with Delta Lake time travel.
 
 ## Project Structure
 
 ```
 src/sdr_toolkit/
-├── core/       # Device abstraction, config, exceptions
-├── dsp/        # FFT, demodulation, filters
-├── io/         # SigMF, audio I/O
-├── apps/       # FM, AM, scanner, recorder
+├── apps/       # Scanner, recorder, survey, FM/AM
 ├── decoders/   # ADS-B, IoT (rtl_433)
-├── storage/    # DuckDB unified schema
-├── ui/         # Rich terminal display
-└── cli/        # Command-line interface
+├── storage/    # DuckDB, Delta Lake, models
+├── dsp/        # FFT, demodulation, filters
+├── io/         # SigMF, audio
+└── cli/        # Typer CLI
 
-specs/          # Implementation specifications
-adws/           # Agentic Developer Workflows
+adws/           # Agentic workflows (spectrum watch)
+specs/          # Implementation specs
+examples/       # Usage examples
 ```
-
-## Specifications
-
-| Spec | Status | Description |
-|------|--------|-------------|
-| Unified Asset Schema | ✅ Implemented | DuckDB + CMDB/NIST/Purdue alignment |
-| IoT Protocol Discovery | ✅ Implemented | rtl_433 wrapper, device registry |
-| Autonomous Monitor | ✅ Implemented | Spectrum watch, alerts, ntfy.sh |
-| Spectrum Survey | ✅ Implemented | Multi-segment surveys, signal state management |
-| TorchSig Integration | 📋 Research | ML signal classification |
-
-See `specs/README.md` for roadmap and dependencies.
 
 ## Development
 
 ```bash
-# Install dev dependencies
-pip install -e ".[dev]"
-
-# Run tests (300+ tests)
-DYLD_LIBRARY_PATH=/opt/homebrew/lib pytest
-
-# Type checking
-mypy src/
-
-# Linting
+DYLD_LIBRARY_PATH=/opt/homebrew/lib pytest tests/ -v  # 305 tests
 ruff check src/
+mypy src/
 ```
 
 ## License
 
-MIT License
+MIT

@@ -1,65 +1,19 @@
-#!/usr/bin/env python3
-"""Simple FM radio listener example.
+"""Listen to FM radio station."""
 
-This example demonstrates how to tune to an FM station
-and listen using the sdr-toolkit.
-
-Usage:
-    python examples/fm_listener.py [--freq FREQ_MHZ] [--duration SECONDS]
-
-Example:
-    python examples/fm_listener.py --freq 101.9 --duration 30
-
-Requirements:
-    - RTL-SDR device connected
-    - On Apple Silicon: export DYLD_LIBRARY_PATH=/opt/homebrew/lib
-"""
-
-import argparse
 import sys
 
 from sdr_toolkit.apps.fm_radio import FMRadio
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Listen to FM radio")
-    parser.add_argument(
-        "--freq",
-        type=float,
-        default=101.9,
-        help="FM station frequency in MHz (default: 101.9 WFAN-FM NYC)",
-    )
-    parser.add_argument(
-        "--duration",
-        type=int,
-        default=30,
-        help="Listen duration in seconds (default: 30, 0 for continuous)",
-    )
-    parser.add_argument(
-        "--gain",
-        type=str,
-        default="auto",
-        help="Receiver gain in dB or 'auto' (default: auto)",
-    )
-    args = parser.parse_args()
-
-    print(f"Tuning to {args.freq} MHz...")
-    print(f"Duration: {args.duration if args.duration > 0 else 'continuous'} seconds")
-    print("Press Ctrl+C to stop")
-    print()
+def main(freq_mhz: float = 101.9, duration: int = 30) -> int:
+    print(f"FM: {freq_mhz} MHz for {duration}s (Ctrl+C to stop)")
 
     try:
-        radio = FMRadio(freq_mhz=args.freq, gain=args.gain)
-
-        if args.duration > 0:
-            radio.listen(duration=args.duration)
-        else:
-            radio.listen()  # Continuous until Ctrl+C
-
+        radio = FMRadio(freq_mhz=freq_mhz)
+        radio.listen(duration=duration if duration > 0 else None)
         return 0
-
     except KeyboardInterrupt:
-        print("\nStopped by user")
+        print("\nStopped")
         return 0
     except Exception as e:
         print(f"Error: {e}")
@@ -67,4 +21,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    freq = float(sys.argv[1]) if len(sys.argv) > 1 else 101.9
+    dur = int(sys.argv[2]) if len(sys.argv) > 2 else 30
+    sys.exit(main(freq, dur))

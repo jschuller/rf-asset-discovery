@@ -15,8 +15,8 @@ uv run sdr-iot -f 433.92M              # Single band
 uv run sdr-iot -f 433.92M,315M         # Multi-band hopping
 uv run sdr-iot -f 433.92M -d 300       # 5-minute scan
 
-# With persistence
-uv run sdr-iot -f 433.92M,315M --db data/unified.duckdb
+# With persistence (survey-first)
+uv run sdr-iot -f 433.92M,315M -l "Home Lab"
 
 # Verbose (show all packets)
 uv run sdr-iot -f 433.92M -v
