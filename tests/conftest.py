@@ -2,13 +2,59 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
+
+
+class MockSDRDevice:
+    """Mock SDR device for testing without hardware."""
+
+    def __init__(
+        self,
+        sample_rate: float = 1.024e6,
+        center_freq: float = 100.0e6,
+        gain: float | str = "auto",
+    ):
+        self.sample_rate = sample_rate
+        self.center_freq = center_freq
+        self.gain = gain
+        self._is_open = False
+
+    def __enter__(self) -> "MockSDRDevice":
+        self._is_open = True
+        return self
+
+    def __exit__(self, *args) -> None:
+        self._is_open = False
+
+    def read_samples(self, num_samples: int) -> np.ndarray:
+        """Generate synthetic IQ samples with a known tone."""
+        if not self._is_open:
+            raise RuntimeError("Device not open")
+        t = np.arange(num_samples) / self.sample_rate
+        freq_offset = 10e3
+        samples = np.exp(2j * np.pi * freq_offset * t)
+        noise = (np.random.randn(num_samples) + 1j * np.random.randn(num_samples)) * 0.1
+        return (samples + noise).astype(np.complex64)
+
+
+@pytest.fixture
+def mock_sdr_device() -> MockSDRDevice:
+    """Provide a mock SDR device for testing."""
+    return MockSDRDevice()
+
+
+@pytest.fixture
+def temp_dir(tmp_path: Path) -> Path:
+    """Provide a temporary directory for tests."""
+    return tmp_path
 
 
 @pytest.fixture

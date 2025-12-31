@@ -26,15 +26,12 @@ from adws.adw_modules.agent import (
 from adws.adw_modules.data_models import (
     ScanResult,
     ScanTask,
-    SignalPeak,
-    SignalType,
     TaskStatus,
     WorkflowConfig,
     WorkflowPhase,
     WorkflowState,
 )
 from adws.adw_modules.utils import (
-    format_frequency,
     generate_report,
     save_scan_result,
     save_workflow_state,

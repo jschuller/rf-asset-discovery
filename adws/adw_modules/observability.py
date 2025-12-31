@@ -248,10 +248,14 @@ class AuditLogger:
 
 
 class ComplianceChecker:
-    """Check frequency compliance with US regulations.
+    """Provides awareness of frequency band regulations.
 
-    Note: This is for informational purposes only.
-    Always verify with local regulations.
+    NOTE: This is INFORMATIONAL ONLY - the toolkit can discover ALL signals,
+    both compliant and non-compliant. This checker does NOT restrict access
+    to any frequency. Users are responsible for ensuring their use complies
+    with local regulations.
+
+    The toolkit is receive-only and does not transmit.
     """
 
     def __init__(self) -> None:

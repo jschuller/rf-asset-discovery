@@ -23,10 +23,10 @@ Tune to an FM radio station and listen.
 3. **Start Playback**
    ```python
    # For timed listening
-   radio.listen(duration=$DURATION)
+   radio.play(duration=$DURATION)
 
    # For continuous listening (Ctrl+C to stop)
-   radio.listen()
+   radio.play()
    ```
 
 4. **Monitor Signal**
