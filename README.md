@@ -8,6 +8,7 @@ Production-quality RTL-SDR toolkit with unified asset storage and agentic capabi
 |----------|--------------|
 | **Radio** | FM broadcast, AM/aircraft band (118-137 MHz) |
 | **Scanning** | Spectrum analysis, peak detection, noise floor estimation |
+| **Survey** | Multi-segment resumable surveys, signal state management |
 | **Recording** | IQ samples (SigMF), FM audio (WAV) |
 | **Decoding** | ADS-B aircraft, IoT devices (rtl_433) |
 | **Monitoring** | Autonomous spectrum watch, anomaly detection, push alerts |
@@ -45,6 +46,7 @@ echo "blacklist dvb_usb_rtl28xxu" | sudo tee /etc/modprobe.d/blacklist-rtlsdr.co
 | `sdr-fm` | FM radio playback | `sdr-fm -f 100.1 -g auto` |
 | `sdr-am` | AM/aircraft band | `sdr-am -f 119.1 --aircraft` |
 | `sdr-scan` | Spectrum scanner | `sdr-scan --fm` or `-s 433 -e 435` |
+| `sdr-survey` | Spectrum survey | `sdr-survey create "Full Sweep"` |
 | `sdr-record` | IQ/audio recorder | `sdr-record -f 100.1 -d 30 --fm` |
 | `sdr-iot` | IoT device discovery | `sdr-iot -f 433.92M -d 300` |
 | `sdr-watch` | Autonomous monitor | `sdr-watch "Watch aircraft band" --ntfy alerts` |
@@ -139,6 +141,7 @@ adws/           # Agentic Developer Workflows
 | Unified Asset Schema | ✅ Implemented | DuckDB + CMDB/NIST/Purdue alignment |
 | IoT Protocol Discovery | ✅ Implemented | rtl_433 wrapper, device registry |
 | Autonomous Monitor | ✅ Implemented | Spectrum watch, alerts, ntfy.sh |
+| Spectrum Survey | ✅ Implemented | Multi-segment surveys, signal state management |
 | TorchSig Integration | 📋 Research | ML signal classification |
 
 See `specs/README.md` for roadmap and dependencies.
@@ -149,7 +152,7 @@ See `specs/README.md` for roadmap and dependencies.
 # Install dev dependencies
 pip install -e ".[dev]"
 
-# Run tests (195 tests)
+# Run tests (300+ tests)
 DYLD_LIBRARY_PATH=/opt/homebrew/lib pytest
 
 # Type checking

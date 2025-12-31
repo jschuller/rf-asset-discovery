@@ -247,6 +247,114 @@ assert data_path.exists(), "Missing .sigmf-data file"
 2. **Driver conflicts** - Zadig for driver installation
 3. **Performance** - May be slower than native
 
+## Survey Issues
+
+### Survey Won't Resume
+
+**Symptom:** `sdr-survey resume <id>` doesn't continue
+
+**Solutions:**
+
+1. **Check survey status**
+   ```bash
+   sdr-survey status <survey_id>
+   ```
+   - `paused` - Can resume
+   - `completed` - Already finished
+   - `failed` - Check error message
+
+2. **Check for pending segments**
+   ```python
+   from sdr_toolkit.storage import UnifiedDB
+   with UnifiedDB("data/unified.duckdb") as db:
+       result = db.query(f"""
+           SELECT COUNT(*) FROM survey_segments
+           WHERE survey_id = '{survey_id}' AND status = 'pending'
+       """)
+       print(f"Pending segments: {result[0]['count']}")
+   ```
+
+3. **Reset failed segment**
+   ```python
+   db.conn.execute("""
+       UPDATE survey_segments SET status = 'pending'
+       WHERE segment_id = 'failed-segment-id'
+   """)
+   ```
+
+### Segments Keep Failing
+
+**Symptom:** Segments fail during scan
+
+**Solutions:**
+
+1. **Check RTL-SDR device**
+   ```bash
+   rtl_test -t
+   ```
+
+2. **Verify frequency range is valid**
+   - RTL-SDR range: 24 MHz - 1766 MHz
+
+3. **Check for USB issues**
+   - Try different USB port
+   - Unplug other USB devices
+
+4. **Lower sample rate** if using high bandwidth
+
+### Survey Progress Lost
+
+**Symptom:** Progress not saved between sessions
+
+**Solutions:**
+
+1. **Verify database path**
+   ```bash
+   ls -la data/unified.duckdb
+   ```
+
+2. **Check for write errors** in logs
+
+3. **Use explicit database path**
+   ```bash
+   sdr-survey resume <id> --db data/unified.duckdb
+   ```
+
+### Ralph Loop Timeout
+
+**Symptom:** Ralph loop stops responding
+
+**Solutions:**
+
+1. **Check for SDR device lock**
+   - Another process may be using the device
+   - Restart the SDR device
+
+2. **Verify segment isn't stuck**
+   ```bash
+   sdr-survey status <survey_id>
+   ```
+
+3. **Manual intervention**
+   - Use `/cancel-ralph` to stop loop
+   - Resume with `sdr-survey resume`
+
+### Too Many Signals Detected
+
+**Symptom:** Thousands of signals, mostly noise
+
+**Solutions:**
+
+1. **Increase threshold** in scan parameters
+
+2. **Use auto-promote threshold**
+   - Only signals with 3+ detections become assets
+
+3. **Manually dismiss noise**
+   - Update signal state to `dismissed`
+
+4. **Check antenna** - May be picking up interference
+
 ## Getting Help
 
 1. **Check device info:**

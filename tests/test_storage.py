@@ -449,3 +449,229 @@ class TestUnifiedDBContextManager:
         db = UnifiedDB(":memory:")
         with pytest.raises(RuntimeError, match="not connected"):
             db.insert_asset(Asset())
+
+
+# ============================================================================
+# Survey Schema Tests
+# ============================================================================
+
+
+class TestSurveySchema:
+    """Tests for survey table schema validation."""
+
+    @pytest.fixture
+    def db(self) -> UnifiedDB:
+        """Create in-memory database for testing."""
+        db = UnifiedDB(":memory:")
+        db.connect()
+        yield db
+        db.close()
+
+    def test_survey_tables_exist(self, db: UnifiedDB) -> None:
+        """Survey tables should be created on connect."""
+        result = db.query("SELECT name FROM sqlite_master WHERE type='table'")
+        table_names = {row["name"] for row in result}
+
+        assert "spectrum_surveys" in table_names
+        assert "survey_segments" in table_names
+        assert "survey_signals" in table_names
+        assert "survey_locations" in table_names
+
+    def test_survey_views_exist(self, db: UnifiedDB) -> None:
+        """Survey views should be created on connect."""
+        result = db.query("SELECT name FROM sqlite_master WHERE type='view'")
+        view_names = {row["name"] for row in result}
+
+        assert "survey_comparison" in view_names
+
+    def test_survey_indexes_exist(self, db: UnifiedDB) -> None:
+        """Survey indexes should be created on connect."""
+        result = db.query("SELECT name FROM sqlite_master WHERE type='index'")
+        index_names = {row["name"] for row in result}
+
+        # Check key survey indexes
+        assert "idx_surveys_status" in index_names
+        assert "idx_segments_survey" in index_names
+        assert "idx_survey_signals_survey" in index_names
+
+    def test_spectrum_surveys_columns(self, db: UnifiedDB) -> None:
+        """spectrum_surveys table should have expected columns."""
+        result = db.query("PRAGMA table_info(spectrum_surveys)")
+        column_names = {row["name"] for row in result}
+
+        expected = {
+            "survey_id", "name", "status", "created_at", "started_at",
+            "completed_at", "start_freq_hz", "end_freq_hz", "total_segments",
+            "completed_segments", "total_signals_found", "location_name",
+        }
+        assert expected.issubset(column_names)
+
+    def test_survey_segments_columns(self, db: UnifiedDB) -> None:
+        """survey_segments table should have expected columns."""
+        result = db.query("PRAGMA table_info(survey_segments)")
+        column_names = {row["name"] for row in result}
+
+        expected = {
+            "segment_id", "survey_id", "name", "start_freq_hz", "end_freq_hz",
+            "priority", "step_hz", "status", "signals_found",
+        }
+        assert expected.issubset(column_names)
+
+    def test_survey_signals_columns(self, db: UnifiedDB) -> None:
+        """survey_signals table should have expected columns."""
+        result = db.query("PRAGMA table_info(survey_signals)")
+        column_names = {row["name"] for row in result}
+
+        expected = {
+            "signal_id", "survey_id", "segment_id", "frequency_hz",
+            "power_db", "state", "detection_count", "promoted_asset_id",
+        }
+        assert expected.issubset(column_names)
+
+
+class TestSurveyCRUD:
+    """Tests for survey CRUD operations via raw SQL."""
+
+    @pytest.fixture
+    def db(self) -> UnifiedDB:
+        """Create in-memory database for testing."""
+        db = UnifiedDB(":memory:")
+        db.connect()
+        yield db
+        db.close()
+
+    def test_insert_survey(self, db: UnifiedDB) -> None:
+        """Should insert a survey record."""
+        db.conn.execute("""
+            INSERT INTO spectrum_surveys (survey_id, name, status)
+            VALUES ('test-123', 'Test Survey', 'pending')
+        """)
+
+        result = db.query(
+            "SELECT * FROM spectrum_surveys WHERE survey_id = 'test-123'"
+        )
+        assert len(result) == 1
+        assert result[0]["name"] == "Test Survey"
+        assert result[0]["status"] == "pending"
+
+    def test_insert_segment(self, db: UnifiedDB) -> None:
+        """Should insert a survey segment."""
+        # First create parent survey
+        db.conn.execute("""
+            INSERT INTO spectrum_surveys (survey_id, name, status)
+            VALUES ('survey-1', 'Parent', 'pending')
+        """)
+
+        # Insert segment
+        db.conn.execute("""
+            INSERT INTO survey_segments (
+                segment_id, survey_id, name, start_freq_hz, end_freq_hz,
+                priority, step_hz, status
+            ) VALUES (
+                'seg-1', 'survey-1', 'FM Band', 87500000, 108000000,
+                1, 200000, 'pending'
+            )
+        """)
+
+        result = db.query(
+            "SELECT * FROM survey_segments WHERE segment_id = 'seg-1'"
+        )
+        assert len(result) == 1
+        assert result[0]["name"] == "FM Band"
+        assert result[0]["start_freq_hz"] == 87500000
+
+    def test_insert_survey_signal(self, db: UnifiedDB) -> None:
+        """Should insert a survey signal."""
+        # Create parent survey
+        db.conn.execute("""
+            INSERT INTO spectrum_surveys (survey_id, name, status)
+            VALUES ('survey-1', 'Parent', 'in_progress')
+        """)
+
+        # Insert signal (first_seen and last_seen are NOT NULL)
+        db.conn.execute("""
+            INSERT INTO survey_signals (
+                signal_id, survey_id, frequency_hz, power_db, state,
+                first_seen, last_seen
+            ) VALUES (
+                'sig-1', 'survey-1', 101900000, -25.5, 'discovered',
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+        """)
+
+        result = db.query(
+            "SELECT * FROM survey_signals WHERE signal_id = 'sig-1'"
+        )
+        assert len(result) == 1
+        assert result[0]["frequency_hz"] == 101900000
+        assert result[0]["state"] == "discovered"
+
+    def test_update_signal_state(self, db: UnifiedDB) -> None:
+        """Should update signal state."""
+        # Setup
+        db.conn.execute("""
+            INSERT INTO spectrum_surveys (survey_id, name, status)
+            VALUES ('survey-1', 'Parent', 'in_progress')
+        """)
+        db.conn.execute("""
+            INSERT INTO survey_signals (
+                signal_id, survey_id, frequency_hz, power_db, state,
+                first_seen, last_seen
+            ) VALUES (
+                'sig-1', 'survey-1', 101900000, -25.5, 'discovered',
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Update state
+        db.conn.execute("""
+            UPDATE survey_signals SET state = 'confirmed'
+            WHERE signal_id = 'sig-1'
+        """)
+
+        result = db.query(
+            "SELECT state FROM survey_signals WHERE signal_id = 'sig-1'"
+        )
+        assert result[0]["state"] == "confirmed"
+
+    def test_survey_segment_count(self, db: UnifiedDB) -> None:
+        """Should count segments per survey."""
+        db.conn.execute("""
+            INSERT INTO spectrum_surveys (survey_id, name, status)
+            VALUES ('survey-1', 'Test', 'pending')
+        """)
+
+        # Insert multiple segments
+        for i in range(5):
+            db.conn.execute(f"""
+                INSERT INTO survey_segments (
+                    segment_id, survey_id, name, start_freq_hz, end_freq_hz,
+                    priority, step_hz, status
+                ) VALUES (
+                    'seg-{i}', 'survey-1', 'Segment {i}', {100e6 + i*10e6},
+                    {110e6 + i*10e6}, 1, 1000000, 'pending'
+                )
+            """)
+
+        result = db.query("""
+            SELECT COUNT(*) as cnt FROM survey_segments
+            WHERE survey_id = 'survey-1'
+        """)
+        assert result[0]["cnt"] == 5
+
+    def test_insert_survey_location(self, db: UnifiedDB) -> None:
+        """Should insert a survey location."""
+        db.conn.execute("""
+            INSERT INTO survey_locations (
+                location_id, name, gps_lat, gps_lon, environment
+            ) VALUES (
+                'loc-1', 'NYC Office', 40.7128, -74.0060, 'indoor'
+            )
+        """)
+
+        result = db.query(
+            "SELECT * FROM survey_locations WHERE location_id = 'loc-1'"
+        )
+        assert len(result) == 1
+        assert result[0]["name"] == "NYC Office"
+        assert result[0]["gps_lat"] == 40.7128

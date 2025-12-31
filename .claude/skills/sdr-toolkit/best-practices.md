@@ -191,6 +191,64 @@ session_001_fm_survey
 session_002_aircraft_monitoring
 ```
 
+## Spectrum Survey Best Practices
+
+### Before Starting a Survey
+
+1. **Plan coverage** - Define frequency range and priority bands
+   ```bash
+   sdr-survey create "Full Spectrum" --full-coverage
+   ```
+
+2. **Set location context** - Enables baseline comparison
+   ```bash
+   sdr-survey create "NYC Office Run 3" \
+       --location "NYC Office" \
+       --antenna "Discone" \
+       --environment indoor
+   ```
+
+3. **Verify device** - Check RTL-SDR is working
+   ```bash
+   rtl_test -t
+   ```
+
+### During Survey Execution
+
+1. **Use Ralph loop** for autonomous operation
+   - Run segments automatically until completion
+   - Handles interruption and resume
+
+2. **Monitor progress**
+   ```bash
+   sdr-survey status <survey_id>
+   ```
+
+3. **Check for failing segments** - May indicate RF interference
+
+### Signal State Management
+
+Discovered signals progress through states:
+
+| State | Description | Action |
+|-------|-------------|--------|
+| `discovered` | Initial detection | Review manually |
+| `confirmed` | Verified as real | Mark as legitimate |
+| `dismissed` | Noise/interference | Mark to ignore |
+| `promoted` | Converted to asset | Auto-creates asset entry |
+
+### Multi-Location Surveys
+
+1. **Name locations consistently** - Enables run comparison
+2. **Set baseline survey** - Compare new runs against baseline
+3. **Use survey_comparison view** - See signal changes
+
+### Survey Data Management
+
+- **Regular exports** - Export to Parquet for analysis
+- **Clean up old surveys** - Delete completed surveys after analysis
+- **Backup database** - `data/unified.duckdb` contains all data
+
 ## Performance Tips
 
 1. **Lower sample rate on Apple Silicon** - Use 1.024 MHz instead of 2.048 MHz

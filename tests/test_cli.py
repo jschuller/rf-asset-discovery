@@ -101,3 +101,67 @@ class TestLogging:
         # Should not raise
         setup_logging(verbose=True)
         setup_logging(verbose=False)
+
+
+class TestSurveyCLI:
+    """Tests for survey CLI commands."""
+
+    def test_survey_function_exists(self):
+        """Test that spectrum_survey function is callable."""
+        from sdr_toolkit.cli.main import spectrum_survey
+
+        assert callable(spectrum_survey)
+
+    def test_survey_help(self):
+        """Test survey help text."""
+        from sdr_toolkit.cli.main import spectrum_survey
+
+        with patch.object(sys, "argv", ["sdr-survey", "--help"]):
+            with pytest.raises(SystemExit) as exc_info:
+                spectrum_survey()
+            assert exc_info.value.code == 0
+
+    def test_survey_create_help(self):
+        """Test survey create subcommand help."""
+        from sdr_toolkit.cli.main import spectrum_survey
+
+        with patch.object(sys, "argv", ["sdr-survey", "create", "--help"]):
+            with pytest.raises(SystemExit) as exc_info:
+                spectrum_survey()
+            assert exc_info.value.code == 0
+
+    def test_survey_list_help(self):
+        """Test survey list subcommand help."""
+        from sdr_toolkit.cli.main import spectrum_survey
+
+        with patch.object(sys, "argv", ["sdr-survey", "list", "--help"]):
+            with pytest.raises(SystemExit) as exc_info:
+                spectrum_survey()
+            assert exc_info.value.code == 0
+
+    def test_survey_status_help(self):
+        """Test survey status subcommand help."""
+        from sdr_toolkit.cli.main import spectrum_survey
+
+        with patch.object(sys, "argv", ["sdr-survey", "status", "--help"]):
+            with pytest.raises(SystemExit) as exc_info:
+                spectrum_survey()
+            assert exc_info.value.code == 0
+
+    def test_survey_resume_help(self):
+        """Test survey resume subcommand help."""
+        from sdr_toolkit.cli.main import spectrum_survey
+
+        with patch.object(sys, "argv", ["sdr-survey", "resume", "--help"]):
+            with pytest.raises(SystemExit) as exc_info:
+                spectrum_survey()
+            assert exc_info.value.code == 0
+
+    def test_survey_next_help(self):
+        """Test survey next subcommand help."""
+        from sdr_toolkit.cli.main import spectrum_survey
+
+        with patch.object(sys, "argv", ["sdr-survey", "next", "--help"]):
+            with pytest.raises(SystemExit) as exc_info:
+                spectrum_survey()
+            assert exc_info.value.code == 0
