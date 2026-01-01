@@ -15,6 +15,18 @@ Identifies unknown wireless devices in industrial environments through passive R
 | RF Assets Identified | 935 |
 | Test Coverage | 305 tests |
 
+## Dashboard
+
+![SDR Toolkit Dashboard](docs/images/dashboard_screenshot.png)
+
+*Streamlit dashboard showing medallion layer metrics, band distribution, and top signals*
+
+## Asset Classification
+
+![Gold Asset Distribution](docs/images/gold_asset_distribution.png)
+
+*Assets classified by CMDB CI Class, Purdue Level, and Risk Level*
+
 ## Architecture
 
 ```mermaid
