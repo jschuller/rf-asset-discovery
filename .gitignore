@@ -73,7 +73,8 @@ Desktop.ini
 *.wav
 
 # Data directories (runtime data, not committed)
-/data/
+/data/*
+!/data/unified.duckdb
 /recordings/
 
 # Logs
