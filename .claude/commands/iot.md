@@ -11,15 +11,15 @@ Discover IoT devices on ISM bands (433 MHz, 315 MHz).
 ## Commands
 ```bash
 # Basic discovery
-uv run sdr-iot -f 433.92M              # Single band
-uv run sdr-iot -f 433.92M,315M         # Multi-band hopping
-uv run sdr-iot -f 433.92M -d 300       # 5-minute scan
+uv run rfad-iot -f 433.92M              # Single band
+uv run rfad-iot -f 433.92M,315M         # Multi-band hopping
+uv run rfad-iot -f 433.92M -d 300       # 5-minute scan
 
 # With persistence (survey-first)
-uv run sdr-iot -f 433.92M,315M -l "Home Lab"
+uv run rfad-iot -f 433.92M,315M -l "Home Lab"
 
 # Verbose (show all packets)
-uv run sdr-iot -f 433.92M -v
+uv run rfad-iot -f 433.92M -v
 ```
 
 ## Devices Found

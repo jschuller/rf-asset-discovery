@@ -1,4 +1,4 @@
-"""Observability and compliance module for SDR Toolkit.
+"""Observability and compliance module for RF Asset Discovery.
 
 Provides:
 - Structured audit logging (JSON Lines format)

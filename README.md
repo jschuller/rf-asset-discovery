@@ -1,4 +1,4 @@
-# SDR Toolkit
+# RF Asset Discovery
 
 Production-quality RF signal processing with medallion architecture for OT/IoT security monitoring.
 
@@ -17,7 +17,7 @@ Identifies unknown wireless devices in industrial environments through passive R
 
 ## Dashboard
 
-![SDR Toolkit Dashboard](docs/images/dashboard_screenshot.png)
+![RF Asset Discovery Dashboard](docs/images/dashboard_screenshot.png)
 
 *Streamlit dashboard showing medallion layer metrics, band distribution, and top signals*
 
@@ -67,7 +67,7 @@ uv sync --all-extras
 export DYLD_LIBRARY_PATH=/opt/homebrew/lib
 
 # Run spectrum scan
-uv run sdr-scan --fm
+uv run rfad-scan --fm
 
 # Run dashboard
 uv run streamlit run dashboard.py
@@ -77,19 +77,19 @@ uv run streamlit run dashboard.py
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `sdr-scan` | Spectrum scanner | `sdr-scan --fm` `sdr-scan -s 433 -e 435` |
-| `sdr-survey` | Multi-segment survey | `sdr-survey create "Full"` |
-| `sdr-transform` | Medallion pipeline | `sdr-transform full` |
-| `sdr-iot` | IoT discovery | `sdr-iot -f 433.92M -d 300` |
-| `sdr-watch` | Autonomous monitor | `sdr-watch --band aircraft` |
-| `sdr-fm` | FM radio playback | `sdr-fm -f 101.9` |
-| `sdr-am` | AM/aircraft radio | `sdr-am -f 119.1` |
+| `rfad-scan` | Spectrum scanner | `rfad-scan --fm` `rfad-scan -s 433 -e 435` |
+| `rfad-survey` | Multi-segment survey | `rfad-survey create "Full"` |
+| `rfad-transform` | Medallion pipeline | `rfad-transform full` |
+| `rfad-iot` | IoT discovery | `rfad-iot -f 433.92M -d 300` |
+| `rfad-watch` | Autonomous monitor | `rfad-watch --band aircraft` |
+| `rfad-fm` | FM radio playback | `rfad-fm -f 101.9` |
+| `rfad-am` | AM/aircraft radio | `rfad-am -f 119.1` |
 
 ## Python API
 
 ```python
-from sdr_toolkit.storage import UnifiedDB
-from sdr_toolkit.apps.survey import SurveyManager
+from rf_asset_discovery.storage import UnifiedDB
+from rf_asset_discovery.apps.survey import SurveyManager
 
 with UnifiedDB("data/unified.duckdb") as db:
     manager = SurveyManager(db)
@@ -112,7 +112,7 @@ with UnifiedDB("data/unified.duckdb") as db:
 ## Project Structure
 
 ```
-src/sdr_toolkit/
+src/rf_asset_discovery/
 ├── apps/       # Scanner, recorder, survey, transform
 ├── decoders/   # ADS-B, IoT (rtl_433)
 ├── storage/    # DuckDB, Delta Lake, models

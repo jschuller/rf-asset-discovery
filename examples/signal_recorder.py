@@ -4,7 +4,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from sdr_toolkit.apps.recorder import SignalRecorder
+from rf_asset_discovery.apps.recorder import SignalRecorder
 
 
 def main(freq_mhz: float = 101.9, duration: float = 10) -> int:

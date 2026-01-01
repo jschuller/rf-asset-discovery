@@ -373,7 +373,7 @@ class TestSpectrumBaseline:
     def test_baseline_add_scan(self) -> None:
         """Test adding scans to baseline."""
         from adws.adw_modules.baseline import SpectrumBaseline
-        from sdr_toolkit.apps.scanner import ScanResult, SignalPeak
+        from rf_asset_discovery.apps.scanner import ScanResult, SignalPeak
 
         baseline = SpectrumBaseline(min_scans_required=3)
 
@@ -394,7 +394,7 @@ class TestSpectrumBaseline:
     def test_baseline_new_signal_detection(self) -> None:
         """Test detecting new signals."""
         from adws.adw_modules.baseline import SpectrumBaseline
-        from sdr_toolkit.apps.scanner import ScanResult, SignalPeak
+        from rf_asset_discovery.apps.scanner import ScanResult, SignalPeak
 
         baseline = SpectrumBaseline(min_scans_required=3)
 
@@ -421,7 +421,7 @@ class TestSpectrumBaseline:
     def test_baseline_power_deviation(self) -> None:
         """Test power deviation calculation."""
         from adws.adw_modules.baseline import SpectrumBaseline
-        from sdr_toolkit.apps.scanner import ScanResult, SignalPeak
+        from rf_asset_discovery.apps.scanner import ScanResult, SignalPeak
 
         baseline = SpectrumBaseline(min_scans_required=3)
 
@@ -446,7 +446,7 @@ class TestSpectrumBaseline:
     def test_baseline_serialization(self) -> None:
         """Test baseline serialization/deserialization."""
         from adws.adw_modules.baseline import SpectrumBaseline
-        from sdr_toolkit.apps.scanner import ScanResult, SignalPeak
+        from rf_asset_discovery.apps.scanner import ScanResult, SignalPeak
 
         baseline = SpectrumBaseline(min_scans_required=3)
 

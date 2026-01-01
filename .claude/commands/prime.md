@@ -18,7 +18,7 @@ git ls-files
 2. Check database for previous discoveries:
 ```bash
 DYLD_LIBRARY_PATH=/opt/homebrew/lib uv run python -c "
-from sdr_toolkit.storage import UnifiedDB
+from rf_asset_discovery.storage import UnifiedDB
 from pathlib import Path
 db_path = Path('data/unified.duckdb')
 if db_path.exists():

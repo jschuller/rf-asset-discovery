@@ -1,1 +1,1 @@
-"""SDR Toolkit tests."""
+"""RF Asset Discovery tests."""

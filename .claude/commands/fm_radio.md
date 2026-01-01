@@ -15,7 +15,7 @@ Tune to an FM radio station and listen.
 
 2. **Initialize FM Radio**
    ```python
-   from sdr_toolkit.apps.fm_radio import FMRadio
+   from rf_asset_discovery.apps.fm_radio import FMRadio
 
    radio = FMRadio(freq_mhz=$FREQ_MHZ, gain="$GAIN")
    ```

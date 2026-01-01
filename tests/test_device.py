@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from sdr_toolkit.core.device import SDRDevice
-from sdr_toolkit.core.exceptions import DeviceError
+from rf_asset_discovery.core.device import SDRDevice
+from rf_asset_discovery.core.exceptions import DeviceError
 
 
 class TestSDRDevice:

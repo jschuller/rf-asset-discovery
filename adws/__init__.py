@@ -1,4 +1,4 @@
-"""Agentic Developer Workflows for SDR Toolkit.
+"""Agentic Developer Workflows for RF Asset Discovery.
 
 TAC-8 style workflows for AI-driven SDR operations.
 

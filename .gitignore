@@ -79,3 +79,4 @@ Desktop.ini
 # Logs
 *.log
 logs/
+data/unified.duckdb

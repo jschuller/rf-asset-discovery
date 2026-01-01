@@ -1,4 +1,4 @@
-"""SDR Toolkit Dashboard - Streamlit MVP.
+"""RF Asset Discovery Dashboard - Streamlit MVP.
 
 Run with: streamlit run dashboard.py
 """
@@ -9,12 +9,12 @@ import pandas as pd
 
 # Page config
 st.set_page_config(
-    page_title="SDR Toolkit Dashboard",
+    page_title="RF Asset Discovery Dashboard",
     page_icon="📡",
     layout="wide",
 )
 
-st.title("📡 SDR Toolkit - RF Asset Dashboard")
+st.title("📡 RF Asset Discovery - RF Asset Dashboard")
 
 
 @st.cache_resource
@@ -159,7 +159,7 @@ def main():
 
     # Footer
     st.divider()
-    st.caption("SDR Toolkit Dashboard | Data from DuckDB medallion architecture")
+    st.caption("RF Asset Discovery Dashboard | Data from DuckDB medallion architecture")
 
 
 if __name__ == "__main__":

@@ -11,19 +11,19 @@ Monitor spectrum continuously, alert on changes.
 ## Commands
 ```bash
 # Preset bands
-uv run sdr-watch --band fm
-uv run sdr-watch --band aircraft
-uv run sdr-watch --band marine
+uv run rfad-watch --band fm
+uv run rfad-watch --band aircraft
+uv run rfad-watch --band marine
 
 # Natural language
-uv run sdr-watch "Watch aircraft band, alert on 121.5 MHz"
-uv run sdr-watch "Monitor 433 MHz for new signals"
+uv run rfad-watch "Watch aircraft band, alert on 121.5 MHz"
+uv run rfad-watch "Monitor 433 MHz for new signals"
 
 # With ntfy.sh notifications
-uv run sdr-watch --band aircraft --ntfy sdr-alerts
+uv run rfad-watch --band aircraft --ntfy sdr-alerts
 
 # Specific frequency
-uv run sdr-watch --freq 121.5
+uv run rfad-watch --freq 121.5
 ```
 
 ## Alert Types

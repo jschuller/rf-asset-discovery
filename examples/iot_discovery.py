@@ -2,7 +2,7 @@
 
 import sys
 
-from sdr_toolkit.decoders.iot import DeviceRegistry, RTL433Decoder, check_rtl433_available
+from rf_asset_discovery.decoders.iot import DeviceRegistry, RTL433Decoder, check_rtl433_available
 
 
 def main(freq: str = "433.92M", duration: int = 60) -> int:

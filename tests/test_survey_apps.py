@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from sdr_toolkit.apps.survey.band_catalog import (
+from rf_asset_discovery.apps.survey.band_catalog import (
     PRIORITY_BANDS,
     RTL_SDR_MAX_HZ,
     RTL_SDR_MIN_HZ,
@@ -15,7 +15,7 @@ from sdr_toolkit.apps.survey.band_catalog import (
     generate_priority_only_segments,
     get_priority_bands,
 )
-from sdr_toolkit.storage.survey_models import (
+from rf_asset_discovery.storage.survey_models import (
     BandDefinition,
     SegmentPriority,
     SurveySegment,

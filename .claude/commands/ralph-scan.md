@@ -22,7 +22,7 @@ Uses the Ralph Wiggum technique to iteratively execute survey segments:
 
 ```bash
 # Step 1: Create survey
-DYLD_LIBRARY_PATH=/opt/homebrew/lib uv run sdr-survey create --name "Ralph Survey $(date +%Y%m%d_%H%M)" --db data/unified.duckdb
+DYLD_LIBRARY_PATH=/opt/homebrew/lib uv run rfad-survey create --name "Ralph Survey $(date +%Y%m%d_%H%M)" --db data/unified.duckdb
 
 # Step 2: Start Ralph loop (replace SURVEY_ID)
 /ralph-loop "Execute spectrum survey segments.
@@ -30,7 +30,7 @@ DYLD_LIBRARY_PATH=/opt/homebrew/lib uv run sdr-survey create --name "Ralph Surve
 OBJECTIVE: Scan all priority RF bands and ingest signals into data/unified.duckdb
 
 WORKFLOW:
-1. Run: DYLD_LIBRARY_PATH=/opt/homebrew/lib uv run sdr-survey next SURVEY_ID --db data/unified.duckdb
+1. Run: DYLD_LIBRARY_PATH=/opt/homebrew/lib uv run rfad-survey next SURVEY_ID --db data/unified.duckdb
 2. Check segment completion status
 3. Continue until survey reaches 100%
 
@@ -68,7 +68,7 @@ DATABASE: data/unified.duckdb" --completion-promise "SURVEY COMPLETE" --max-iter
 Ralph Loop
     |
     v
-sdr-survey next <id>
+rfad-survey next <id>
     |
     v
 SpectrumScanner.scan()
@@ -87,11 +87,11 @@ assets table (CMDB)
 
 ```bash
 # Check survey status
-DYLD_LIBRARY_PATH=/opt/homebrew/lib uv run sdr-survey status <survey_id>
+DYLD_LIBRARY_PATH=/opt/homebrew/lib uv run rfad-survey status <survey_id>
 
 # Query database directly
 uv run python -c "
-from sdr_toolkit.storage import UnifiedDB
+from rf_asset_discovery.storage import UnifiedDB
 with UnifiedDB('data/unified.duckdb') as db:
     survey = db.conn.execute('''
         SELECT name, status, completion_pct, total_signals_found

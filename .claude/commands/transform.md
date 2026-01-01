@@ -17,7 +17,7 @@ Transform RF discovery data through Bronze → Silver → Gold medallion archite
 ### Show Status
 
 ```bash
-uv run sdr-transform status --db data/unified.duckdb
+uv run rfad-transform status --db data/unified.duckdb
 ```
 
 Shows current state of medallion schemas and table row counts.
@@ -26,7 +26,7 @@ Shows current state of medallion schemas and table row counts.
 
 ```bash
 # Migrate main schema tables to bronze
-uv run sdr-transform bronze --db data/unified.duckdb
+uv run rfad-transform bronze --db data/unified.duckdb
 ```
 
 Copies signals, scan_sessions, survey_segments to bronze schema.
@@ -35,13 +35,13 @@ Copies signals, scan_sessions, survey_segments to bronze schema.
 
 ```bash
 # Transform with defaults
-uv run sdr-transform silver --db data/unified.duckdb
+uv run rfad-transform silver --db data/unified.duckdb
 
 # Custom thresholds
-uv run sdr-transform silver --min-power 5 --min-detections 2
+uv run rfad-transform silver --min-power 5 --min-detections 2
 
 # Preview without writing
-uv run sdr-transform silver --dry-run
+uv run rfad-transform silver --dry-run
 ```
 
 **Transformations:**
@@ -54,13 +54,13 @@ uv run sdr-transform silver --dry-run
 
 ```bash
 # Transform with defaults
-uv run sdr-transform gold --db data/unified.duckdb
+uv run rfad-transform gold --db data/unified.duckdb
 
 # High-quality signals only
-uv run sdr-transform gold --min-power 15 --known-only
+uv run rfad-transform gold --min-power 15 --known-only
 
 # Preview without writing
-uv run sdr-transform gold --dry-run
+uv run rfad-transform gold --dry-run
 ```
 
 **Enrichments:**
@@ -73,10 +73,10 @@ uv run sdr-transform gold --dry-run
 
 ```bash
 # Run bronze → silver → gold
-uv run sdr-transform full --db data/unified.duckdb
+uv run rfad-transform full --db data/unified.duckdb
 
 # Preview entire pipeline
-uv run sdr-transform full --dry-run
+uv run rfad-transform full --dry-run
 ```
 
 ## Schema Structure

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from sdr_toolkit.storage import (
+from rf_asset_discovery.storage import (
     Asset,
     CMDBCIClass,
     DeviceCategory,

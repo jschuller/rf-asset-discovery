@@ -6,7 +6,7 @@ from datetime import datetime
 
 import pytest
 
-from sdr_toolkit.storage.survey_models import (
+from rf_asset_discovery.storage.survey_models import (
     BandDefinition,
     SegmentPriority,
     SegmentStatus,
@@ -15,7 +15,7 @@ from sdr_toolkit.storage.survey_models import (
     SurveySegment,
     SurveyStatus,
 )
-from sdr_toolkit.storage.models import Signal, SignalState
+from rf_asset_discovery.storage.models import Signal, SignalState
 
 
 # ============================================================================

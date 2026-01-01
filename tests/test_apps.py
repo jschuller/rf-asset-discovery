@@ -13,25 +13,25 @@ class TestFMRadio:
 
     def test_fm_radio_import(self):
         """Test that FMRadio imports correctly."""
-        from sdr_toolkit.apps.fm_radio import FMRadio
+        from rf_asset_discovery.apps.fm_radio import FMRadio
 
         assert FMRadio is not None
 
     def test_fm_radio_init(self):
         """Test FMRadio initialization with valid parameters."""
-        from sdr_toolkit.apps.fm_radio import FMRadio
+        from rf_asset_discovery.apps.fm_radio import FMRadio
 
         # Mock the device to avoid hardware dependency
-        with patch("sdr_toolkit.apps.fm_radio.SDRDevice"):
+        with patch("rf_asset_discovery.apps.fm_radio.SDRDevice"):
             radio = FMRadio(freq_mhz=100.1, gain="auto", device_index=0)
             assert radio.freq_mhz == 100.1
             assert radio.gain == "auto"
 
     def test_fm_radio_frequency_range(self):
         """Test FMRadio accepts valid FM frequencies."""
-        from sdr_toolkit.apps.fm_radio import FMRadio
+        from rf_asset_discovery.apps.fm_radio import FMRadio
 
-        with patch("sdr_toolkit.apps.fm_radio.SDRDevice"):
+        with patch("rf_asset_discovery.apps.fm_radio.SDRDevice"):
             # Valid FM frequencies
             radio = FMRadio(freq_mhz=87.5)  # Low end
             assert radio.freq_mhz == 87.5
@@ -45,24 +45,24 @@ class TestAMRadio:
 
     def test_am_radio_import(self):
         """Test that AMRadio imports correctly."""
-        from sdr_toolkit.apps.am_radio import AMRadio
+        from rf_asset_discovery.apps.am_radio import AMRadio
 
         assert AMRadio is not None
 
     def test_am_radio_init(self):
         """Test AMRadio initialization with valid parameters."""
-        from sdr_toolkit.apps.am_radio import AMRadio
+        from rf_asset_discovery.apps.am_radio import AMRadio
 
-        with patch("sdr_toolkit.apps.am_radio.SDRDevice"):
+        with patch("rf_asset_discovery.apps.am_radio.SDRDevice"):
             radio = AMRadio(freq_mhz=119.1, gain="auto", device_index=0)
             assert radio.freq_mhz == 119.1
             assert radio.gain == "auto"
 
     def test_am_radio_aircraft_band(self):
         """Test AMRadio with aircraft band frequencies."""
-        from sdr_toolkit.apps.am_radio import AMRadio
+        from rf_asset_discovery.apps.am_radio import AMRadio
 
-        with patch("sdr_toolkit.apps.am_radio.SDRDevice"):
+        with patch("rf_asset_discovery.apps.am_radio.SDRDevice"):
             # Aircraft band frequencies
             radio = AMRadio(freq_mhz=118.0)  # Low end
             assert radio.freq_mhz == 118.0
@@ -76,15 +76,15 @@ class TestSpectrumScanner:
 
     def test_scanner_import(self):
         """Test that SpectrumScanner imports correctly."""
-        from sdr_toolkit.apps.scanner import SpectrumScanner
+        from rf_asset_discovery.apps.scanner import SpectrumScanner
 
         assert SpectrumScanner is not None
 
     def test_scanner_init(self):
         """Test SpectrumScanner initialization."""
-        from sdr_toolkit.apps.scanner import SpectrumScanner
+        from rf_asset_discovery.apps.scanner import SpectrumScanner
 
-        with patch("sdr_toolkit.apps.scanner.SDRDevice"):
+        with patch("rf_asset_discovery.apps.scanner.SDRDevice"):
             scanner = SpectrumScanner(gain="auto", threshold_db=-30)
             assert scanner.threshold_db == -30
 
@@ -94,14 +94,14 @@ class TestSignalRecorder:
 
     def test_recorder_import(self):
         """Test that SignalRecorder imports correctly."""
-        from sdr_toolkit.apps.recorder import SignalRecorder
+        from rf_asset_discovery.apps.recorder import SignalRecorder
 
         assert SignalRecorder is not None
 
     def test_recorder_init(self):
         """Test SignalRecorder initialization."""
-        from sdr_toolkit.apps.recorder import SignalRecorder
+        from rf_asset_discovery.apps.recorder import SignalRecorder
 
-        with patch("sdr_toolkit.apps.recorder.SDRDevice"):
+        with patch("rf_asset_discovery.apps.recorder.SDRDevice"):
             recorder = SignalRecorder(center_freq_mhz=100.1, gain="auto")
             assert recorder.center_freq_mhz == 100.1

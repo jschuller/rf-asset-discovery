@@ -1,12 +1,12 @@
 [project]
-name = "sdr-toolkit"
+name = "rf-asset-discovery"
 version = "0.1.0"
-description = "Production-quality RTL-SDR toolkit with agentic capabilities"
+description = "RF asset discovery for OT/IoT security monitoring with medallion architecture"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
-authors = [{name = "SDR Toolkit Contributors"}]
-keywords = ["sdr", "rtl-sdr", "radio", "signal-processing", "fm"]
+authors = [{name = "RF Asset Discovery Contributors"}]
+keywords = ["sdr", "rtl-sdr", "rf-security", "iot-security", "asset-discovery", "medallion-architecture", "ot-security"]
 
 dependencies = [
     "pyrtlsdr>=0.3.0",
@@ -48,25 +48,25 @@ dev = [
     "duckdb>=1.0.0",
 ]
 all = [
-    "sdr-toolkit[plot,agent,adsb,ui,storage,delta,watch,dashboard,dev]",
+    "rf-asset-discovery[plot,agent,adsb,ui,storage,delta,watch,dashboard,dev]",
 ]
 
 [project.scripts]
-sdr-fm = "sdr_toolkit.cli.main:fm_radio"
-sdr-am = "sdr_toolkit.cli.main:am_radio"
-sdr-scan = "sdr_toolkit.cli.main:scanner"
-sdr-record = "sdr_toolkit.cli.main:recorder"
-sdr-iot = "sdr_toolkit.cli.main:iot_scan"
-sdr-watch = "sdr_toolkit.cli.main:spectrum_watch"
-sdr-survey = "sdr_toolkit.cli.main:spectrum_survey"
-sdr-transform = "sdr_toolkit.cli.main:medallion_transform"
+rfad-fm = "rf_asset_discovery.cli.main:fm_radio"
+rfad-am = "rf_asset_discovery.cli.main:am_radio"
+rfad-scan = "rf_asset_discovery.cli.main:scanner"
+rfad-record = "rf_asset_discovery.cli.main:recorder"
+rfad-iot = "rf_asset_discovery.cli.main:iot_scan"
+rfad-watch = "rf_asset_discovery.cli.main:spectrum_watch"
+rfad-survey = "rf_asset_discovery.cli.main:spectrum_survey"
+rfad-transform = "rf_asset_discovery.cli.main:medallion_transform"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/sdr_toolkit"]
+packages = ["src/rf_asset_discovery"]
 
 [tool.mypy]
 strict = true
@@ -86,6 +86,6 @@ ignore = ["ANN101", "ANN102"]  # self/cls type annotations
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
-addopts = "--cov=sdr_toolkit --cov-report=term-missing"
+addopts = "--cov=rf_asset_discovery --cov-report=term-missing"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"

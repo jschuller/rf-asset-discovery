@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from sdr_toolkit.storage import UnifiedDB
-from sdr_toolkit.storage.delta_store import DeltaStore
+from rf_asset_discovery.storage import UnifiedDB
+from rf_asset_discovery.storage.delta_store import DeltaStore
 
 
 def main() -> None:

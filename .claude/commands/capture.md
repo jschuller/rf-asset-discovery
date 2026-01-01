@@ -16,13 +16,13 @@ Record and analyze RF signals in one workflow. Creates IQ recordings in SigMF fo
 
 ```bash
 # Basic recording (creates SigMF file)
-uv run sdr-record -f 101.9 -d 30
+uv run rfad-record -f 101.9 -d 30
 
 # With location context
-uv run sdr-record -f 101.9 -d 30 -l "NYC Office"
+uv run rfad-record -f 101.9 -d 30 -l "NYC Office"
 
 # High sample rate for wideband
-uv run sdr-record -f 915.0 -d 10 --sample-rate 2.4e6
+uv run rfad-record -f 915.0 -d 10 --sample-rate 2.4e6
 ```
 
 Recordings are stored in `recordings/` with SigMF metadata.
@@ -77,7 +77,7 @@ Recordings are linked to surveys via the signals table:
 
 ```bash
 # Record creates adhoc survey + signal entry
-uv run sdr-record -f 433.92 -d 30 -l "Lab"
+uv run rfad-record -f 433.92 -d 30 -l "Lab"
 
 # Signal entry includes sigmf_path for later analysis
 ```
@@ -88,10 +88,10 @@ uv run sdr-record -f 433.92 -d 30 -l "Lab"
 
 ```bash
 # 1. Scan to find signal
-uv run sdr-scan -s 430 -e 440
+uv run rfad-scan -s 430 -e 440
 
 # 2. Record strong signal
-uv run sdr-record -f 433.92 -d 60
+uv run rfad-record -f 433.92 -d 60
 
 # 3. Analyze recording
 uv run sdr-analyze recordings/latest.sigmf
@@ -101,7 +101,7 @@ uv run sdr-analyze recordings/latest.sigmf
 
 ```bash
 # Record interference at specific frequency
-uv run sdr-record -f 2437.0 -d 120 -l "Office" --notes "WiFi interference"
+uv run rfad-record -f 2437.0 -d 120 -l "Office" --notes "WiFi interference"
 
 # Analyze for pattern
 uv run sdr-analyze recordings/latest.sigmf --spectrogram

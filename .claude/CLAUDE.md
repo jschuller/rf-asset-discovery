@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-SDR Toolkit: CLI + DuckDB + Claude Skills
+RF Asset Discovery: CLI + DuckDB + Claude Skills
 
 ## Current State (Sprint 12)
 
@@ -25,28 +25,28 @@ export DYLD_LIBRARY_PATH=/opt/homebrew/lib
 
 ```bash
 # Scanning
-uv run sdr-scan --fm              # FM band (87.5-108 MHz)
-uv run sdr-scan --aircraft        # Aircraft (118-137 MHz)
-uv run sdr-scan -s 400 -e 450     # Custom range
+uv run rfad-scan --fm              # FM band (87.5-108 MHz)
+uv run rfad-scan --aircraft        # Aircraft (118-137 MHz)
+uv run rfad-scan -s 400 -e 450     # Custom range
 
 # IoT Discovery (rtl_433)
-uv run sdr-iot -f 433.92M                           # Single band
-uv run sdr-iot -f 433.92M,315M --db data/unified.duckdb  # Multi-band + persist
+uv run rfad-iot -f 433.92M                           # Single band
+uv run rfad-iot -f 433.92M,315M --db data/unified.duckdb  # Multi-band + persist
 
 # Monitoring
-uv run sdr-watch --band aircraft
-uv run sdr-watch "Watch 121.5 MHz emergency"
+uv run rfad-watch --band aircraft
+uv run rfad-watch "Watch 121.5 MHz emergency"
 
 # Recording
-uv run sdr-record -f 101.9 -d 30  # 30 sec IQ recording
+uv run rfad-record -f 101.9 -d 30  # 30 sec IQ recording
 
 # Listening
-uv run sdr-fm -f 101.9            # FM radio
-uv run sdr-am -f 119.1            # Aircraft AM
+uv run rfad-fm -f 101.9            # FM radio
+uv run rfad-am -f 119.1            # Aircraft AM
 
 # Medallion Transforms
-uv run sdr-transform status       # Show pipeline status
-uv run sdr-transform full         # Run bronze→silver→gold
+uv run rfad-transform status       # Show pipeline status
+uv run rfad-transform full         # Run bronze→silver→gold
 ```
 
 ## Skills
@@ -79,7 +79,7 @@ Main schema tables (legacy):
 ## Architecture
 
 ```
-src/sdr_toolkit/
+src/rf_asset_discovery/
 ├── apps/       # Scanner, recorder, FM/AM radio
 ├── decoders/   # IoT (rtl_433), ADS-B
 ├── storage/    # DuckDB unified storage
@@ -103,8 +103,8 @@ with SDRDevice(center_freq=101.9e6) as sdr:
     samples = sdr.read_samples(1024000)
 
 # IoT discovery with persistence
-from sdr_toolkit.decoders.iot import RTL433Decoder, DeviceRegistry
-from sdr_toolkit.storage import UnifiedDB
+from rf_asset_discovery.decoders.iot import RTL433Decoder, DeviceRegistry
+from rf_asset_discovery.storage import UnifiedDB
 
 with UnifiedDB("data/unified.duckdb") as db:
     registry = DeviceRegistry(db=db)

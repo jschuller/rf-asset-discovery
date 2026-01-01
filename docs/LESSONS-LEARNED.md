@@ -1,6 +1,6 @@
 # Lessons Learned
 
-Project retrospective from SDR Toolkit development.
+Project retrospective from RF Asset Discovery development.
 
 ## What Worked Well
 
@@ -193,24 +193,24 @@ self.conn.execute(f"INSERT INTO silver.verified_signals {sql}")
 
 ```bash
 # Good: Clear subcommands
-sdr-transform status
-sdr-transform bronze
-sdr-transform silver
-sdr-transform gold
-sdr-transform full
+rfad-transform status
+rfad-transform bronze
+rfad-transform silver
+rfad-transform gold
+rfad-transform full
 
 # Bad: Confusing flags
-sdr-transform --mode=status --layer=all
+rfad-transform --mode=status --layer=all
 ```
 
 ### Consistent Patterns
 
 ```bash
 # All commands follow same pattern
-sdr-survey create --name "Pass 1" --full
-sdr-survey status <id>
-sdr-survey next <id>
-sdr-survey resume <id>
+rfad-survey create --name "Pass 1" --full
+rfad-survey status <id>
+rfad-survey next <id>
+rfad-survey resume <id>
 ```
 
 ## Testing Lessons
@@ -254,11 +254,11 @@ def mock_sdr():
 # Good: Dense, scannable
 | Command | Purpose |
 |---------|---------|
-| `sdr-scan --fm` | FM band |
-| `sdr-survey create` | New survey |
+| `rfad-scan --fm` | FM band |
+| `rfad-survey create` | New survey |
 
 # Bad: Verbose prose
-The sdr-scan command is used for scanning the radio spectrum.
+The rfad-scan command is used for scanning the radio spectrum.
 When you want to scan the FM band, you should use the --fm flag.
 ```
 

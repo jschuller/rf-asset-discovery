@@ -18,7 +18,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from sdr_toolkit.apps.scanner import ScanResult, SignalPeak, SpectrumScanner
+from rf_asset_discovery.apps.scanner import ScanResult, SignalPeak, SpectrumScanner
 
 from .adw_modules.baseline import SpectrumBaseline
 from .adw_modules.notifier import (
@@ -115,7 +115,7 @@ class SpectrumWatch:
         )
 
         # State persistence
-        self.state_dir = state_dir or Path.home() / ".sdr-toolkit" / "watches"
+        self.state_dir = state_dir or Path.home() / ".rf-asset-discovery" / "watches"
         self.state_dir.mkdir(parents=True, exist_ok=True)
 
         # Runtime state
@@ -615,12 +615,12 @@ class SpectrumWatch:
 
         Args:
             watch_id: The watch ID to load.
-            state_dir: State directory (default: ~/.sdr-toolkit/watches).
+            state_dir: State directory (default: ~/.rf-asset-discovery/watches).
 
         Returns:
             Restored SpectrumWatch or None if not found.
         """
-        state_dir = state_dir or Path.home() / ".sdr-toolkit" / "watches"
+        state_dir = state_dir or Path.home() / ".rf-asset-discovery" / "watches"
         state_file = state_dir / f"{watch_id}.json"
 
         if not state_file.exists():

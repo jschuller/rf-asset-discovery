@@ -11,7 +11,7 @@ class TestADSBImports:
     def test_decoder_imports(self):
         """Test that decoder module imports correctly."""
         try:
-            from sdr_toolkit.decoders import (
+            from rf_asset_discovery.decoders import (
                 ADSBMessage,
                 decode_adsb_message,
                 decode_adsb_messages,
@@ -32,7 +32,7 @@ class TestIsValidADSB:
     def test_valid_message(self):
         """Test with valid ADS-B message."""
         try:
-            from sdr_toolkit.decoders import is_valid_adsb
+            from rf_asset_discovery.decoders import is_valid_adsb
 
             # Known valid ADS-B message (aircraft identification)
             msg = "8D4840D6202CC371C32CE0576098"
@@ -43,7 +43,7 @@ class TestIsValidADSB:
     def test_invalid_length(self):
         """Test with wrong length message."""
         try:
-            from sdr_toolkit.decoders import is_valid_adsb
+            from rf_asset_discovery.decoders import is_valid_adsb
 
             # Too short
             assert is_valid_adsb("8D4840D6") is False
@@ -56,7 +56,7 @@ class TestIsValidADSB:
     def test_invalid_crc(self):
         """Test with invalid CRC."""
         try:
-            from sdr_toolkit.decoders import is_valid_adsb
+            from rf_asset_discovery.decoders import is_valid_adsb
 
             # Valid length but corrupted (bad CRC)
             msg = "8D4840D6202CC371C32CE0576099"  # Changed last byte
@@ -71,7 +71,7 @@ class TestDecodeADSBMessage:
     def test_decode_identification(self):
         """Test decoding aircraft identification message."""
         try:
-            from sdr_toolkit.decoders import decode_adsb_message
+            from rf_asset_discovery.decoders import decode_adsb_message
 
             # Aircraft identification message (typecode 1-4)
             msg = "8D4840D6202CC371C32CE0576098"
@@ -87,7 +87,7 @@ class TestDecodeADSBMessage:
     def test_decode_invalid_message(self):
         """Test decoding returns None for invalid message."""
         try:
-            from sdr_toolkit.decoders import decode_adsb_message
+            from rf_asset_discovery.decoders import decode_adsb_message
 
             # Invalid message
             result = decode_adsb_message("invalid")
@@ -102,7 +102,7 @@ class TestDecodeADSBMessages:
     def test_decode_multiple(self):
         """Test decoding multiple messages."""
         try:
-            from sdr_toolkit.decoders import decode_adsb_messages
+            from rf_asset_discovery.decoders import decode_adsb_messages
 
             messages = [
                 "8D4840D6202CC371C32CE0576098",  # Valid
@@ -120,7 +120,7 @@ class TestDecodeADSBMessages:
     def test_decode_empty_list(self):
         """Test decoding empty list."""
         try:
-            from sdr_toolkit.decoders import decode_adsb_messages
+            from rf_asset_discovery.decoders import decode_adsb_messages
 
             results = decode_adsb_messages([])
             assert len(results) == 0
@@ -134,7 +134,7 @@ class TestADSBMessage:
     def test_message_to_dict(self):
         """Test converting message to dictionary."""
         try:
-            from sdr_toolkit.decoders import ADSBMessage
+            from rf_asset_discovery.decoders import ADSBMessage
 
             msg = ADSBMessage(
                 raw="8D4840D6202CC371C32CE0576098",

@@ -27,7 +27,7 @@ Uses the Ralph Wiggum technique to iteratively scan for IoT devices:
 OBJECTIVE: Discover IoT devices at 433.92 MHz and 315 MHz bands
 
 WORKFLOW:
-1. Run: DYLD_LIBRARY_PATH=/opt/homebrew/lib uv run sdr-iot -f 433.92M --db data/unified.duckdb --duration 30
+1. Run: DYLD_LIBRARY_PATH=/opt/homebrew/lib uv run rfad-iot -f 433.92M --db data/unified.duckdb --duration 30
 2. Parse rtl_433 output for device packets
 3. Run 3 scan cycles to capture intermittent transmitters
 
@@ -59,13 +59,13 @@ DATABASE: data/unified.duckdb" --completion-promise "IOT SCAN COMPLETE" --max-it
 
 ```bash
 # Single frequency
-uv run sdr-iot -f 433.92M --db data/unified.duckdb --duration 30
+uv run rfad-iot -f 433.92M --db data/unified.duckdb --duration 30
 
 # Multi-frequency with hopping
-uv run sdr-iot -f 433.92M,315M --db data/unified.duckdb --duration 60 --hop 30
+uv run rfad-iot -f 433.92M,315M --db data/unified.duckdb --duration 60 --hop 30
 
 # Higher gain for weak signals
-uv run sdr-iot -f 433.92M --db data/unified.duckdb --gain 40
+uv run rfad-iot -f 433.92M --db data/unified.duckdb --gain 40
 ```
 
 ## Data Flow
@@ -99,7 +99,7 @@ Discovered devices are classified into:
 ```bash
 # Check IoT scan sessions
 uv run python -c "
-from sdr_toolkit.storage import UnifiedDB
+from rf_asset_discovery.storage import UnifiedDB
 with UnifiedDB('data/unified.duckdb') as db:
     sessions = db.conn.execute('''
         SELECT scan_id, start_time, results_summary

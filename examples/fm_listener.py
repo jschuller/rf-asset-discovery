@@ -2,7 +2,7 @@
 
 import sys
 
-from sdr_toolkit.apps.fm_radio import FMRadio
+from rf_asset_discovery.apps.fm_radio import FMRadio
 
 
 def main(freq_mhz: float = 101.9, duration: int = 30) -> int:

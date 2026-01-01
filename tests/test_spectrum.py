@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from sdr_toolkit.dsp.spectrum import (
+from rf_asset_discovery.dsp.spectrum import (
     compute_fft,
     compute_power_spectrum,
     compute_power_spectrum_hz,

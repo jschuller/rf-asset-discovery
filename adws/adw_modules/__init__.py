@@ -1,4 +1,4 @@
-"""Agentic Developer Workflow modules for SDR Toolkit.
+"""Agentic Developer Workflow modules for RF Asset Discovery.
 
 Focused on autonomous spectrum monitoring (adw_spectrum_watch).
 """

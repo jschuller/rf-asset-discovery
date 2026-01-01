@@ -1,4 +1,4 @@
-# SDR Toolkit Architecture
+# RF Asset Discovery Architecture
 
 ## System Overview
 
@@ -91,9 +91,9 @@ flowchart LR
 ```
 
 **Key Files:**
-- `src/sdr_toolkit/core/device.py` - RTL-SDR context manager
-- `src/sdr_toolkit/apps/scanner.py` - Spectrum scanning
-- `src/sdr_toolkit/apps/survey/` - Survey orchestration
+- `src/rf_asset_discovery/core/device.py` - RTL-SDR context manager
+- `src/rf_asset_discovery/apps/scanner.py` - Spectrum scanning
+- `src/rf_asset_discovery/apps/survey/` - Survey orchestration
 
 ### Medallion Layer
 
@@ -120,8 +120,8 @@ flowchart TB
 ```
 
 **Key Files:**
-- `src/sdr_toolkit/apps/transform.py` - MedallionTransformer class
-- `src/sdr_toolkit/storage/classification.py` - Protocol/CMDB mapping
+- `src/rf_asset_discovery/apps/transform.py` - MedallionTransformer class
+- `src/rf_asset_discovery/storage/classification.py` - Protocol/CMDB mapping
 
 ### Classification Layer
 
@@ -250,12 +250,12 @@ WHERE power_db >= 10;
 
 | Command | Purpose | Key Options |
 |---------|---------|-------------|
-| `sdr-scan` | Spectrum scanning | `--fm`, `--aircraft`, `-s/-e` range |
-| `sdr-survey` | Survey orchestration | `create`, `next`, `status`, `resume` |
-| `sdr-transform` | Medallion pipeline | `status`, `bronze`, `silver`, `gold`, `full` |
-| `sdr-iot` | IoT discovery | `-f 433.92M,315M`, `--duration` |
-| `sdr-fm` | FM radio | `-f 101.9` |
-| `sdr-watch` | Monitoring | `--band`, `--alert-threshold` |
+| `rfad-scan` | Spectrum scanning | `--fm`, `--aircraft`, `-s/-e` range |
+| `rfad-survey` | Survey orchestration | `create`, `next`, `status`, `resume` |
+| `rfad-transform` | Medallion pipeline | `status`, `bronze`, `silver`, `gold`, `full` |
+| `rfad-iot` | IoT discovery | `-f 433.92M,315M`, `--duration` |
+| `rfad-fm` | FM radio | `-f 101.9` |
+| `rfad-watch` | Monitoring | `--band`, `--alert-threshold` |
 
 ## Claude Skills
 
@@ -280,8 +280,8 @@ WHERE power_db >= 10;
 ## Directory Structure
 
 ```
-sdr-toolkit/
-├── src/sdr_toolkit/
+rf-asset-discovery/
+├── src/rf_asset_discovery/
 │   ├── apps/           # Scanner, recorder, transform
 │   ├── core/           # Device management
 │   ├── decoders/       # IoT, ADS-B

@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from sdr_toolkit.dsp.demodulation import (
+from rf_asset_discovery.dsp.demodulation import (
     am_demodulate,
     compute_signal_strength,
     fm_demodulate,

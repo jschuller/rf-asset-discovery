@@ -14,7 +14,7 @@ class TestUIImports:
     def test_ui_module_imports(self):
         """Test that UI module imports correctly."""
         try:
-            from sdr_toolkit.ui import display_scan_results, print_banner
+            from rf_asset_discovery.ui import display_scan_results, print_banner
 
             assert callable(display_scan_results)
             assert callable(print_banner)
@@ -29,7 +29,7 @@ class TestPrintBanner:
     def test_print_banner_with_title(self):
         """Test banner with just title."""
         try:
-            from sdr_toolkit.ui import print_banner
+            from rf_asset_discovery.ui import print_banner
 
             # Should not raise
             print_banner("Test Title")
@@ -39,7 +39,7 @@ class TestPrintBanner:
     def test_print_banner_with_subtitle(self):
         """Test banner with title and subtitle."""
         try:
-            from sdr_toolkit.ui import print_banner
+            from rf_asset_discovery.ui import print_banner
 
             # Should not raise
             print_banner("Test Title", "Test Subtitle")
@@ -53,7 +53,7 @@ class TestDisplayScanResults:
     def test_display_scan_results_empty(self):
         """Test display with no peaks."""
         try:
-            from sdr_toolkit.ui import display_scan_results
+            from rf_asset_discovery.ui import display_scan_results
 
             # Create mock scan result
             mock_result = MagicMock()
@@ -69,7 +69,7 @@ class TestDisplayScanResults:
     def test_display_scan_results_with_peaks(self):
         """Test display with some peaks."""
         try:
-            from sdr_toolkit.ui import display_scan_results
+            from rf_asset_discovery.ui import display_scan_results
 
             # Create mock peak
             mock_peak = MagicMock()
@@ -90,7 +90,7 @@ class TestDisplayScanResults:
     def test_display_scan_results_show_all(self):
         """Test display with show_all flag."""
         try:
-            from sdr_toolkit.ui import display_scan_results
+            from rf_asset_discovery.ui import display_scan_results
 
             mock_result = MagicMock()
             mock_result.peaks = []

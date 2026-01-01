@@ -1,6 +1,6 @@
 # Results Summary
 
-Final metrics from 12 survey passes of SDR Toolkit data collection.
+Final metrics from 12 survey passes of RF Asset Discovery data collection.
 
 ## Executive Summary
 

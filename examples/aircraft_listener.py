@@ -2,7 +2,7 @@
 
 import sys
 
-from sdr_toolkit.apps.am_radio import AMRadio
+from rf_asset_discovery.apps.am_radio import AMRadio
 
 NYC_FREQS = {
     "JFK Tower": 119.1,

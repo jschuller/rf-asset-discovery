@@ -18,10 +18,10 @@ All-in-one spectrum scanning: comprehensive surveys AND quick ad-hoc scans.
 
 ```bash
 # Ad-hoc scans create single-segment surveys automatically
-uv run sdr-scan --fm                        # FM band (87.5-108 MHz)
-uv run sdr-scan --aircraft                  # Aircraft band (118-137 MHz)
-uv run sdr-scan -s 400 -e 450               # Custom range
-uv run sdr-scan --fm -l "NYC Office"        # With location
+uv run rfad-scan --fm                        # FM band (87.5-108 MHz)
+uv run rfad-scan --aircraft                  # Aircraft band (118-137 MHz)
+uv run rfad-scan -s 400 -e 450               # Custom range
+uv run rfad-scan --fm -l "NYC Office"        # With location
 ```
 
 All scans route through surveys → signals table → optional promotion to assets.
@@ -30,46 +30,46 @@ All scans route through surveys → signals table → optional promotion to asse
 
 ```bash
 # Full survey (24-1766 MHz with gap filling) - ~30-45 min
-uv run sdr-survey create --name "Full Sweep" --full
+uv run rfad-survey create --name "Full Sweep" --full
 
 # Priority bands only (faster, ~10 min)
-uv run sdr-survey create --name "Quick Scan" --priority-only
+uv run rfad-survey create --name "Quick Scan" --priority-only
 
 # Custom range
-uv run sdr-survey create --name "VHF Survey" -s 100 -e 500
+uv run rfad-survey create --name "VHF Survey" -s 100 -e 500
 ```
 
 ### Resume Survey
 
 ```bash
 # Resume all remaining segments
-uv run sdr-survey resume <survey_id>
+uv run rfad-survey resume <survey_id>
 
 # Scan only 5 segments then pause
-uv run sdr-survey resume <survey_id> --max 5
+uv run rfad-survey resume <survey_id> --max 5
 ```
 
 ### Check Status
 
 ```bash
 # List all surveys
-uv run sdr-survey list
+uv run rfad-survey list
 
 # Single survey status
-uv run sdr-survey status <survey_id>
+uv run rfad-survey status <survey_id>
 
 # JSON output (for scripts)
-uv run sdr-survey status <survey_id> --json
+uv run rfad-survey status <survey_id> --json
 ```
 
 ### Execute Next Segment (Ralph Integration)
 
 ```bash
 # Single segment execution
-uv run sdr-survey next <survey_id>
+uv run rfad-survey next <survey_id>
 
 # JSON output for Ralph loops
-uv run sdr-survey next <survey_id> --json
+uv run rfad-survey next <survey_id> --json
 ```
 
 ## Ralph Loop Integration
@@ -77,7 +77,7 @@ uv run sdr-survey next <survey_id> --json
 Start a Ralph loop to complete a survey iteratively:
 
 ```bash
-/ralph-loop "Complete spectrum survey <id>. Run: uv run sdr-survey next <id>. Continue until you see 'SURVEY COMPLETE'. Output <promise>SURVEY COMPLETE</promise> when done." --max-iterations 50
+/ralph-loop "Complete spectrum survey <id>. Run: uv run rfad-survey next <id>. Continue until you see 'SURVEY COMPLETE'. Output <promise>SURVEY COMPLETE</promise> when done." --max-iterations 50
 ```
 
 ## Survey Types
@@ -108,18 +108,18 @@ Run surveys from different locations with full differentiation (ServiceNow ITOM-
 
 ```bash
 # Create survey with location context
-uv run sdr-survey create --name "Morning Scan" \
+uv run rfad-survey create --name "Morning Scan" \
     --location "NYC Office" \
     --antenna "Discone" \
     --notes "Clear weather"
 
 # Run again from different location
-uv run sdr-survey create --name "Evening Scan" \
+uv run rfad-survey create --name "Evening Scan" \
     --location "Hoboken Home" \
     --antenna "Stock RTL-SDR"
 
 # List surveys by location
-uv run sdr-survey list --location "NYC Office"
+uv run rfad-survey list --location "NYC Office"
 ```
 
 **Tracked Context:**

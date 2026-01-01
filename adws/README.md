@@ -1,4 +1,4 @@
-# SDR Toolkit - Agentic Developer Workflows
+# RF Asset Discovery - Agentic Developer Workflows
 
 AI-driven SDR operations using Claude Code CLI.
 

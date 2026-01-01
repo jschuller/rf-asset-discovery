@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from sdr_toolkit.apps.survey import SurveyManager
-from sdr_toolkit.storage import Signal, SignalState, UnifiedDB
+from rf_asset_discovery.apps.survey import SurveyManager
+from rf_asset_discovery.storage import Signal, SignalState, UnifiedDB
 
 
 def main() -> None:

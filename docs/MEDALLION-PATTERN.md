@@ -336,7 +336,7 @@ git add data/unified.duckdb
 git commit -m "Data: bronze layer complete"
 ```
 
-## Example: SDR Toolkit Implementation
+## Example: RF Asset Discovery Implementation
 
 | Component | SDR-Specific | Generic Pattern |
 |-----------|--------------|-----------------|

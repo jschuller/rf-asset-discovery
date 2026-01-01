@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from sdr_toolkit.decoders.iot import (
+from rf_asset_discovery.decoders.iot import (
     DeviceRegistry,
     IoTDevice,
     IoTPacket,
@@ -17,8 +17,8 @@ from sdr_toolkit.decoders.iot import (
     extract_device_id,
     map_to_rf_protocol,
 )
-from sdr_toolkit.decoders.iot.classifier import extract_telemetry
-from sdr_toolkit.storage.models import RFProtocol
+from rf_asset_discovery.decoders.iot.classifier import extract_telemetry
+from rf_asset_discovery.storage.models import RFProtocol
 
 
 # ============================================================================
@@ -411,7 +411,7 @@ class TestRTL433Wrapper:
 
     def test_check_rtl433_available(self) -> None:
         """check_rtl433_available should not crash."""
-        from sdr_toolkit.decoders.iot import check_rtl433_available
+        from rf_asset_discovery.decoders.iot import check_rtl433_available
 
         # Just verify it returns bool without error
         result = check_rtl433_available()
@@ -419,7 +419,7 @@ class TestRTL433Wrapper:
 
     def test_decoder_build_command(self) -> None:
         """Decoder should build correct command line."""
-        from sdr_toolkit.decoders.iot.rtl433_wrapper import RTL433Decoder
+        from rf_asset_discovery.decoders.iot.rtl433_wrapper import RTL433Decoder
 
         decoder = RTL433Decoder(
             frequencies=["433.92M", "315M"],
@@ -444,7 +444,7 @@ class TestRTL433Wrapper:
 
     def test_decoder_not_started_error(self) -> None:
         """stream_raw should raise if decoder not started."""
-        from sdr_toolkit.decoders.iot import RTL433Decoder, RTL433Error
+        from rf_asset_discovery.decoders.iot import RTL433Decoder, RTL433Error
 
         decoder = RTL433Decoder()
         with pytest.raises(RTL433Error, match="not started"):

@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from sdr_toolkit.io.sigmf import SigMFAnnotation, SigMFCapture, SigMFRecording
+from rf_asset_discovery.io.sigmf import SigMFAnnotation, SigMFCapture, SigMFRecording
 
 
 class TestSigMFRecording:

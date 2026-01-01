@@ -14,7 +14,7 @@ import statistics
 from dataclasses import dataclass, field
 from typing import Any
 
-from sdr_toolkit.apps.scanner import ScanResult, SignalPeak
+from rf_asset_discovery.apps.scanner import ScanResult, SignalPeak
 
 logger = logging.getLogger(__name__)
 
