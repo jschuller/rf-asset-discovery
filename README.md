@@ -17,13 +17,13 @@ Identifies unknown wireless devices in industrial environments through passive R
 
 ## Dashboard
 
-![RF Asset Discovery Dashboard](docs/images/dashboard_screenshot.png)
+![RF Asset Discovery Dashboard](docs/images/dashboard_screenshot.png?v=2)
 
 *Streamlit dashboard showing medallion layer metrics, band distribution, and top signals*
 
 ## Asset Classification
 
-![Gold Asset Distribution](docs/images/gold_asset_distribution.png)
+![Gold Asset Distribution](docs/images/gold_asset_distribution.png?v=2)
 
 *Assets classified by CMDB CI Class, Purdue Level, and Risk Level*
 
