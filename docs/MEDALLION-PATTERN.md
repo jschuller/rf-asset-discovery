@@ -2,6 +2,11 @@
 
 Reusable data lakehouse pattern for Claude-agentic projects.
 
+> **Standalone Template:** Use [project-template-medallion](https://github.com/jschuller/project-template-medallion) to create new medallion projects:
+> ```bash
+> cookiecutter gh:jschuller/project-template-medallion
+> ```
+
 ## Pattern Overview
 
 ```mermaid
