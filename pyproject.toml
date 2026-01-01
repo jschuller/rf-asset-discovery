@@ -34,6 +34,11 @@ watch = [
     "httpx>=0.25.0",
     "rich>=13.0",
 ]
+dashboard = [
+    "streamlit>=1.30.0",
+    "pandas>=2.0.0",
+    "duckdb>=1.0.0",
+]
 dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
@@ -43,7 +48,7 @@ dev = [
     "duckdb>=1.0.0",
 ]
 all = [
-    "sdr-toolkit[plot,agent,adsb,ui,storage,delta,watch,dev]",
+    "sdr-toolkit[plot,agent,adsb,ui,storage,delta,watch,dashboard,dev]",
 ]
 
 [project.scripts]

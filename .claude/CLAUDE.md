@@ -2,6 +2,16 @@
 
 SDR Toolkit: CLI + DuckDB + Claude Skills
 
+## Current State (Sprint 12)
+
+| Layer | Records | Notes |
+|-------|--------:|-------|
+| Bronze | 169,485 | Raw RF detections |
+| Silver | 8,474 | Verified (multi-detected) |
+| Gold | 935 | CMDB-ready assets |
+
+**Key docs:** `docs/ARCHITECTURE.md`, `docs/LESSONS-LEARNED.md`
+
 ## Setup
 
 ```bash
@@ -114,3 +124,27 @@ with UnifiedDB("data/unified.duckdb") as db:
 ```bash
 DYLD_LIBRARY_PATH=/opt/homebrew/lib pytest tests/ -v
 ```
+
+## Quick Gotchas
+
+| Issue | Fix |
+|-------|-----|
+| SDR device locked | `pkill -f rtl_433` |
+| PLL not locked warning | Ignore (edge frequency) |
+| Database >100MB | Use CSV export, exclude from git |
+| zsh loop fails | `export DYLD_LIBRARY_PATH` first |
+
+## Key Thresholds
+
+```
+detection_count >= 2  → Silver layer
+power_db >= 10        → Gold layer
+power_db >= 25        → High priority
+```
+
+## Documentation
+
+- `docs/ARCHITECTURE.md` - System diagrams
+- `docs/MEDALLION-PATTERN.md` - Reusable template
+- `docs/LESSONS-LEARNED.md` - Gotchas + patterns
+- `docs/RESULTS-SUMMARY.md` - Final metrics
