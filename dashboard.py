@@ -3,6 +3,7 @@
 Run with: streamlit run dashboard.py
 """
 
+import os
 import streamlit as st
 import duckdb
 import pandas as pd
@@ -19,8 +20,18 @@ st.title("📡 RF Asset Discovery - RF Asset Dashboard")
 
 @st.cache_resource
 def get_connection():
-    """Get DuckDB connection (cached)."""
-    return duckdb.connect("data/unified.duckdb", read_only=True)
+    """Get DuckDB connection (cached).
+
+    Uses unified.duckdb if available, otherwise falls back to example.duckdb.
+    """
+    if os.path.exists("data/unified.duckdb"):
+        return duckdb.connect("data/unified.duckdb", read_only=True)
+    elif os.path.exists("data/example.duckdb"):
+        st.info("📊 Using example dataset. Run rfad-scan to collect your own data.")
+        return duckdb.connect("data/example.duckdb", read_only=True)
+    else:
+        st.error("No database found. Run rfad-scan or download example.duckdb.")
+        st.stop()
 
 
 def get_layer_counts(conn) -> dict:

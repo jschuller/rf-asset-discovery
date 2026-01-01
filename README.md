@@ -21,6 +21,12 @@ Identifies unknown wireless devices in industrial environments through passive R
 
 *Streamlit dashboard showing medallion layer metrics, band distribution, and top signals*
 
+### Dark Mode
+
+![Dashboard Dark Mode](docs/images/dashboard_dark.png)
+
+*Dark theme for low-light environments*
+
 ## Asset Classification
 
 ![Gold Asset Distribution](docs/images/gold_asset_distribution.png)
@@ -66,12 +72,15 @@ brew install rtl-sdr rtl_433
 uv sync --all-extras
 export DYLD_LIBRARY_PATH=/opt/homebrew/lib
 
-# Run spectrum scan
-uv run rfad-scan --fm
-
-# Run dashboard
+# Run dashboard with example data (no hardware required)
 uv run streamlit run dashboard.py
+
+# Or scan with RTL-SDR hardware
+uv run rfad-scan --fm
 ```
+
+> **Note:** The included `data/example.duckdb` contains sample data for demonstration.
+> Run `rfad-scan` with RTL-SDR hardware to collect your own spectrum data.
 
 ## CLI Commands
 

@@ -72,11 +72,14 @@ Desktop.ini
 *.cfile
 *.wav
 
-# Data directories (runtime data, not committed)
-/data/
+# Data directories (large runtime data)
 /recordings/
 
 # Logs
 *.log
 logs/
+
+# Keep unified.duckdb ignored (too large for GitHub)
+# But allow example.duckdb for reproducibility
 data/unified.duckdb
+!data/example.duckdb
