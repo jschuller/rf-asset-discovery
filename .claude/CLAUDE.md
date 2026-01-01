@@ -33,6 +33,10 @@ uv run sdr-record -f 101.9 -d 30  # 30 sec IQ recording
 # Listening
 uv run sdr-fm -f 101.9            # FM radio
 uv run sdr-am -f 119.1            # Aircraft AM
+
+# Medallion Transforms
+uv run sdr-transform status       # Show pipeline status
+uv run sdr-transform full         # Run bronze→silver→gold
 ```
 
 ## Skills
@@ -44,19 +48,23 @@ uv run sdr-am -f 119.1            # Aircraft AM
 /fm_radio        FM listening
 /iot             IoT device discovery
 /watch           Autonomous monitoring
+/transform       Medallion data transformations
 ```
 
-## Schema
+## Schema (Medallion Architecture)
 
-| Table | Purpose |
-|-------|---------|
-| `signals` | All RF detections with lifecycle (discovered → confirmed → promoted) |
-| `assets` | Canonical CMDB inventory (promoted from signals) |
-| `spectrum_surveys` | Survey orchestration |
-| `survey_segments` | Segment definitions |
-| `scan_sessions` | Operation audit log |
+| Layer | Schema | Tables |
+|-------|--------|--------|
+| Bronze | `bronze` | signals, scan_sessions, survey_segments |
+| Silver | `silver` | verified_signals, band_inventory |
+| Gold | `gold` | rf_assets |
 
-**Data flow:** CLI → Survey → Signals → Assets (with Delta Lake time travel)
+**Data flow:** Bronze (raw) → Silver (curated) → Gold (business-ready)
+
+Main schema tables (legacy):
+- `signals` - All RF detections
+- `spectrum_surveys` - Survey orchestration
+- `scan_sessions` - Operation audit log
 
 ## Architecture
 

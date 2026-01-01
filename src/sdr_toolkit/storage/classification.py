@@ -339,3 +339,235 @@ def auto_classify_asset(asset: Asset) -> Asset:
     asset.risk_level = calculate_risk_level(asset)
 
     return asset
+
+
+# =============================================================================
+# Band-to-Protocol Mapping (for Medallion Architecture Transformations)
+# =============================================================================
+
+from typing import NamedTuple
+
+
+class BandProtocolInfo(NamedTuple):
+    """Band to protocol mapping info for medallion transforms."""
+
+    protocol: str
+    modulation: str
+    cmdb_ci_class: str
+    purdue_level: int
+    description: str
+
+
+# Band to protocol mapping for silver layer transformation
+BAND_PROTOCOL_MAP: dict[str, BandProtocolInfo] = {
+    # Broadcast
+    "fm_broadcast": BandProtocolInfo(
+        "FM_BROADCAST", "WFM", "RF_BROADCAST_TRANSMITTER", 5, "FM broadcast (75 kHz)",
+    ),
+    # Aviation
+    "aircraft": BandProtocolInfo(
+        "AM_VOICE", "AM", "RF_AVIATION_TRANSPONDER", 5, "Civil aviation voice",
+    ),
+    "adsb": BandProtocolInfo(
+        "ADS_B", "PPM", "RF_ADSB_TRANSPONDER", 5, "ADS-B Mode S",
+    ),
+    # ISM bands (IoT)
+    "ism_433": BandProtocolInfo(
+        "OOK", "OOK", "RF_IOT_DEVICE", 0, "433 MHz ISM",
+    ),
+    "ism_315": BandProtocolInfo(
+        "OOK", "OOK", "RF_IOT_DEVICE", 0, "315 MHz ISM",
+    ),
+    "ism_868": BandProtocolInfo(
+        "FSK", "GFSK", "RF_IOT_DEVICE", 0, "868 MHz EU IoT",
+    ),
+    "ism_900": BandProtocolInfo(
+        "FSK", "GFSK", "RF_IOT_DEVICE", 1, "900 MHz US LoRa",
+    ),
+    # Two-way radio
+    "frs_gmrs": BandProtocolInfo(
+        "FM_VOICE", "NFM", "RF_TWO_WAY_RADIO", 4, "FRS/GMRS",
+    ),
+    "marine_vhf": BandProtocolInfo(
+        "FM_VOICE", "NFM", "RF_MARINE_RADIO", 5, "Marine VHF",
+    ),
+    "noaa_weather": BandProtocolInfo(
+        "FM_VOICE", "NFM", "RF_WEATHER_STATION", 5, "NOAA weather",
+    ),
+    # Amateur radio
+    "uhf_amateur": BandProtocolInfo(
+        "MIXED", "FM_SSB", "RF_AMATEUR_RADIO", 5, "UHF amateur (70cm)",
+    ),
+    "vhf_amateur": BandProtocolInfo(
+        "MIXED", "FM_SSB", "RF_AMATEUR_RADIO", 5, "VHF amateur (2m)",
+    ),
+    # Cellular
+    "cellular_700": BandProtocolInfo(
+        "LTE", "OFDM", "RF_CELLULAR_TOWER", 5, "LTE 700 MHz",
+    ),
+    "cellular_850": BandProtocolInfo(
+        "LTE", "OFDM", "RF_CELLULAR_TOWER", 5, "LTE 850 MHz",
+    ),
+    "cellular_1900": BandProtocolInfo(
+        "LTE", "OFDM", "RF_CELLULAR_TOWER", 5, "LTE/PCS 1900 MHz",
+    ),
+    # Navigation
+    "gps": BandProtocolInfo(
+        "SPREAD_SPECTRUM", "CDMA", "RF_NAVIGATION_SATELLITE", 5, "GPS L1",
+    ),
+}
+
+UNKNOWN_BAND_INFO = BandProtocolInfo(
+    "UNKNOWN", "UNKNOWN", "RF_EMITTER", 5, "Unclassified",
+)
+
+
+def get_band_protocol_info(freq_band: str | None) -> BandProtocolInfo:
+    """Get protocol info for a frequency band.
+
+    Args:
+        freq_band: Frequency band identifier.
+
+    Returns:
+        BandProtocolInfo with classification fields.
+    """
+    if not freq_band:
+        return UNKNOWN_BAND_INFO
+    return BAND_PROTOCOL_MAP.get(freq_band.lower(), UNKNOWN_BAND_INFO)
+
+
+def classify_band_protocol(freq_band: str | None) -> str:
+    """Get RF protocol for a frequency band.
+
+    Args:
+        freq_band: Frequency band identifier.
+
+    Returns:
+        RF protocol string.
+    """
+    return get_band_protocol_info(freq_band).protocol
+
+
+def classify_band_cmdb_class(freq_band: str | None) -> str:
+    """Get CMDB CI class for a frequency band.
+
+    Args:
+        freq_band: Frequency band identifier.
+
+    Returns:
+        CMDB CI class string.
+    """
+    return get_band_protocol_info(freq_band).cmdb_ci_class
+
+
+def classify_band_purdue_level(freq_band: str | None) -> int:
+    """Get Purdue level for a frequency band.
+
+    Args:
+        freq_band: Frequency band identifier.
+
+    Returns:
+        Purdue level (0-5).
+    """
+    return get_band_protocol_info(freq_band).purdue_level
+
+
+def assess_band_security_posture(freq_band: str | None, power_db: float) -> str:
+    """Assess security posture based on band and power.
+
+    Args:
+        freq_band: Frequency band identifier.
+        power_db: Signal power in dB.
+
+    Returns:
+        Security posture string.
+    """
+    info = get_band_protocol_info(freq_band)
+
+    # OT/IoT bands at lower Purdue levels need review
+    if info.purdue_level <= 1:
+        return "REQUIRES_REVIEW"
+
+    # Strong unknown signals need review
+    if info.protocol == "UNKNOWN" and power_db >= 10:
+        return "REQUIRES_REVIEW"
+
+    # Known protocols at higher levels are compliant
+    if info.protocol != "UNKNOWN":
+        return "COMPLIANT"
+
+    return "NOT_ASSESSED"
+
+
+def assess_band_risk_level(security_posture: str, purdue_level: int) -> str:
+    """Assess risk level based on posture and Purdue level.
+
+    Args:
+        security_posture: Security posture string.
+        purdue_level: Purdue level (0-5).
+
+    Returns:
+        Risk level string.
+    """
+    if security_posture == "REQUIRES_REVIEW":
+        if purdue_level <= 1:
+            return "HIGH"
+        return "MEDIUM"
+    return "LOW"
+
+
+# SQL CASE statements for medallion transforms
+PROTOCOL_CASE_SQL = """
+CASE freq_band
+    WHEN 'fm_broadcast' THEN 'FM_BROADCAST'
+    WHEN 'aircraft' THEN 'AM_VOICE'
+    WHEN 'adsb' THEN 'ADS_B'
+    WHEN 'ism_433' THEN 'OOK'
+    WHEN 'ism_315' THEN 'OOK'
+    WHEN 'ism_868' THEN 'FSK'
+    WHEN 'ism_900' THEN 'FSK'
+    WHEN 'frs_gmrs' THEN 'FM_VOICE'
+    WHEN 'marine_vhf' THEN 'FM_VOICE'
+    WHEN 'noaa_weather' THEN 'FM_VOICE'
+    WHEN 'uhf_amateur' THEN 'MIXED'
+    WHEN 'vhf_amateur' THEN 'MIXED'
+    WHEN 'cellular_700' THEN 'LTE'
+    WHEN 'cellular_850' THEN 'LTE'
+    WHEN 'cellular_1900' THEN 'LTE'
+    WHEN 'gps' THEN 'SPREAD_SPECTRUM'
+    ELSE 'UNKNOWN'
+END
+"""
+
+CMDB_CLASS_CASE_SQL = """
+CASE freq_band
+    WHEN 'fm_broadcast' THEN 'RF_BROADCAST_TRANSMITTER'
+    WHEN 'aircraft' THEN 'RF_AVIATION_TRANSPONDER'
+    WHEN 'adsb' THEN 'RF_ADSB_TRANSPONDER'
+    WHEN 'ism_433' THEN 'RF_IOT_DEVICE'
+    WHEN 'ism_315' THEN 'RF_IOT_DEVICE'
+    WHEN 'ism_868' THEN 'RF_IOT_DEVICE'
+    WHEN 'ism_900' THEN 'RF_IOT_DEVICE'
+    WHEN 'frs_gmrs' THEN 'RF_TWO_WAY_RADIO'
+    WHEN 'marine_vhf' THEN 'RF_MARINE_RADIO'
+    WHEN 'noaa_weather' THEN 'RF_WEATHER_STATION'
+    WHEN 'uhf_amateur' THEN 'RF_AMATEUR_RADIO'
+    WHEN 'vhf_amateur' THEN 'RF_AMATEUR_RADIO'
+    WHEN 'cellular_700' THEN 'RF_CELLULAR_TOWER'
+    WHEN 'cellular_850' THEN 'RF_CELLULAR_TOWER'
+    WHEN 'cellular_1900' THEN 'RF_CELLULAR_TOWER'
+    WHEN 'gps' THEN 'RF_NAVIGATION_SATELLITE'
+    ELSE 'RF_EMITTER'
+END
+"""
+
+PURDUE_LEVEL_CASE_SQL = """
+CASE freq_band
+    WHEN 'ism_433' THEN 0
+    WHEN 'ism_315' THEN 0
+    WHEN 'ism_868' THEN 0
+    WHEN 'ism_900' THEN 1
+    WHEN 'frs_gmrs' THEN 4
+    ELSE 5
+END
+"""

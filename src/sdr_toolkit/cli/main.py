@@ -1342,6 +1342,233 @@ def spectrum_survey() -> None:
         sys.exit(1)
 
 
+def medallion_transform() -> None:
+    """Medallion Architecture Transform CLI entry point."""
+    parser = argparse.ArgumentParser(
+        description="Medallion Transform - Bronze/Silver/Gold data transformations"
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # Status command
+    status_parser = subparsers.add_parser("status", help="Show medallion architecture status")
+    status_parser.add_argument(
+        "--db",
+        type=str,
+        default="data/unified.duckdb",
+        help="DuckDB path (default: data/unified.duckdb)",
+    )
+
+    # Bronze migration
+    bronze_parser = subparsers.add_parser("bronze", help="Migrate tables to bronze layer")
+    bronze_parser.add_argument(
+        "--db",
+        type=str,
+        default="data/unified.duckdb",
+        help="DuckDB path",
+    )
+
+    # Silver transformation
+    silver_parser = subparsers.add_parser("silver", help="Transform bronze to silver")
+    silver_parser.add_argument(
+        "--min-power",
+        type=float,
+        default=0,
+        help="Minimum power in dB (default: 0)",
+    )
+    silver_parser.add_argument(
+        "--min-detections",
+        type=int,
+        default=1,
+        help="Minimum detection count (default: 1)",
+    )
+    silver_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview without creating tables",
+    )
+    silver_parser.add_argument(
+        "--db",
+        type=str,
+        default="data/unified.duckdb",
+        help="DuckDB path",
+    )
+
+    # Gold transformation
+    gold_parser = subparsers.add_parser("gold", help="Transform silver to gold")
+    gold_parser.add_argument(
+        "--min-power",
+        type=float,
+        default=10,
+        help="Minimum power for assets (default: 10)",
+    )
+    gold_parser.add_argument(
+        "--all-bands",
+        action="store_true",
+        help="Include unknown protocol signals",
+    )
+    gold_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview without creating tables",
+    )
+    gold_parser.add_argument(
+        "--db",
+        type=str,
+        default="data/unified.duckdb",
+        help="DuckDB path",
+    )
+
+    # Full pipeline
+    full_parser = subparsers.add_parser("full", help="Run complete bronze→silver→gold pipeline")
+    full_parser.add_argument(
+        "--min-silver-power",
+        type=float,
+        default=0,
+        help="Min power for silver (default: 0)",
+    )
+    full_parser.add_argument(
+        "--min-gold-power",
+        type=float,
+        default=10,
+        help="Min power for gold (default: 10)",
+    )
+    full_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview without creating tables",
+    )
+    full_parser.add_argument(
+        "--db",
+        type=str,
+        default="data/unified.duckdb",
+        help="DuckDB path",
+    )
+
+    # Common options
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output",
+    )
+
+    args = parser.parse_args()
+    setup_logging(args.verbose if hasattr(args, "verbose") else False)
+
+    # Import transform module
+    try:
+        from pathlib import Path
+        from sdr_toolkit.apps.transform import MedallionTransformer
+    except ImportError as e:
+        print(f"Error: Transform module not available: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    db_path = Path(getattr(args, "db", "data/unified.duckdb"))
+
+    # Status uses read-only mode to avoid lock conflicts
+    read_only = args.command == "status"
+
+    try:
+        with MedallionTransformer(db_path, read_only=read_only) as transformer:
+            if args.command == "status":
+                status = transformer.get_status()
+
+                print("Medallion Architecture Status")
+                print("=" * 50)
+
+                for layer, exists in status.schemas_exist.items():
+                    status_icon = "✓" if exists else "✗"
+                    print(f"\n{status_icon} {layer.upper()} Schema")
+
+                    tables = getattr(status, f"{layer}_tables")
+                    if tables:
+                        for table, count in tables.items():
+                            print(f"    {table}: {count:,} rows")
+                    elif exists:
+                        print("    (empty)")
+
+            elif args.command == "bronze":
+                print("Migrating tables to bronze layer...")
+                results = transformer.migrate_to_bronze()
+
+                print("\nMigration Results:")
+                for r in results:
+                    status = "✓" if r.success else "✗"
+                    print(f"  {status} {r.table}: {r.rows_created:,} rows ({r.duration_seconds:.1f}s)")
+                    if r.error:
+                        print(f"      Error: {r.error}")
+
+            elif args.command == "silver":
+                print("Transforming bronze → silver...")
+                result = transformer.bronze_to_silver(
+                    min_power_db=args.min_power,
+                    min_detections=args.min_detections,
+                    dry_run=args.dry_run,
+                )
+
+                if args.dry_run:
+                    print(f"\nDRY RUN: Would create {result.rows_source:,} silver records")
+                else:
+                    print(f"\nCreated silver.verified_signals: {result.rows_created:,} rows")
+                    print(f"  From {result.rows_source:,} bronze signals")
+                    print(f"  Duration: {result.duration_seconds:.1f}s")
+
+                # Also create band inventory
+                if not args.dry_run:
+                    inv_result = transformer.create_band_inventory()
+                    print(f"\nCreated silver.band_inventory: {inv_result.rows_created:,} bands")
+
+            elif args.command == "gold":
+                print("Transforming silver → gold...")
+                result = transformer.silver_to_gold(
+                    min_power_db=args.min_power,
+                    known_bands_only=not args.all_bands,
+                    dry_run=args.dry_run,
+                )
+
+                if args.dry_run:
+                    print(f"\nDRY RUN: Would create {result.rows_source:,} gold assets")
+                else:
+                    if result.success:
+                        print(f"\nCreated gold.rf_assets: {result.rows_created:,} assets")
+                        print(f"  From {result.rows_source:,} silver signals")
+                        print(f"  Duration: {result.duration_seconds:.1f}s")
+                    else:
+                        print(f"\nError: {result.error}")
+                        sys.exit(1)
+
+            elif args.command == "full":
+                print("Running full medallion pipeline...")
+                print("  Bronze → Silver → Gold\n")
+
+                results = transformer.run_full_pipeline(
+                    min_silver_power=args.min_silver_power,
+                    min_gold_power=args.min_gold_power,
+                    dry_run=args.dry_run,
+                )
+
+                print("\nPipeline Results:")
+                print("-" * 50)
+                for r in results:
+                    status = "✓" if r.success else "✗"
+                    if args.dry_run and r.error == "DRY RUN - no changes made":
+                        print(f"  {r.layer}.{r.table}: would create {r.rows_source:,} rows")
+                    else:
+                        print(f"  {status} {r.layer}.{r.table}: {r.rows_created:,} rows")
+                        if r.error and "DRY RUN" not in (r.error or ""):
+                            print(f"      Error: {r.error}")
+
+                if not args.dry_run:
+                    print("\n✓ Pipeline complete!")
+
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        if args.verbose if hasattr(args, "verbose") else False:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     # Default to fm_radio if run directly
     fm_radio()

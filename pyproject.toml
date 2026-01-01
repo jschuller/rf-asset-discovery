@@ -54,6 +54,7 @@ sdr-record = "sdr_toolkit.cli.main:recorder"
 sdr-iot = "sdr_toolkit.cli.main:iot_scan"
 sdr-watch = "sdr_toolkit.cli.main:spectrum_watch"
 sdr-survey = "sdr_toolkit.cli.main:spectrum_survey"
+sdr-transform = "sdr_toolkit.cli.main:medallion_transform"
 
 [build-system]
 requires = ["hatchling"]
