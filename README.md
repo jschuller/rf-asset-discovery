@@ -21,12 +21,6 @@ Identifies unknown wireless devices in industrial environments through passive R
 
 *Streamlit dashboard showing medallion layer metrics, band distribution, and top signals*
 
-### Dark Mode
-
-![Dashboard Dark Mode](docs/images/dashboard_dark.png)
-
-*Dark theme for low-light environments*
-
 ## Asset Classification
 
 ![Gold Asset Distribution](docs/images/gold_asset_distribution.png)
