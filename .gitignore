@@ -82,4 +82,6 @@ logs/
 # Keep unified.duckdb ignored (too large for GitHub)
 # But allow example.duckdb for reproducibility
 data/unified.duckdb
+data/*_test*.duckdb
+data/sample_*.json
 !data/example.duckdb
