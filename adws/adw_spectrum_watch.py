@@ -357,6 +357,9 @@ class SpectrumWatch:
         """
         alerts: list[Alert] = []
 
+        # Track signal presence once per scan, whatever the cooldowns
+        self.baseline.update_presence(result)
+
         for condition in self.config.alert_conditions:
             # Check cooldown
             cooldown_key = f"{condition.condition_type}_{condition.frequency_hz}"

@@ -10,6 +10,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+if TYPE_CHECKING:
+    from adws.adw_modules.baseline import SpectrumBaseline
+    from adws.adw_modules.notifier import MultiBackend
+    from adws.adw_modules.watch_config import WatchConfig
+    from adws.adw_spectrum_watch import SpectrumWatch
+    from rf_asset_discovery.apps.scanner import ScanResult
+
 # =============================================================================
 # Module Import Tests
 # =============================================================================
@@ -504,6 +511,124 @@ class TestSignalHistory:
             consecutive_misses=0,
         )
         assert unstable.is_stable is False
+
+
+def _fm_scan(
+    *freqs_hz: float, start_hz: float = 87.5e6, end_hz: float = 108e6
+) -> ScanResult:
+    """A ScanResult over the given range with a -20 dB peak at each frequency."""
+    from rf_asset_discovery.apps.scanner import ScanResult, SignalPeak
+
+    return ScanResult(
+        start_freq_hz=start_hz,
+        end_freq_hz=end_hz,
+        step_hz=200e3,
+        peaks=[SignalPeak(frequency_hz=f, power_db=-20) for f in freqs_hz],
+        noise_floor_db=-60,
+        scan_time_seconds=1.0,
+    )
+
+
+def _make_watch(
+    tmp_path: Path, config: WatchConfig, notifier: MultiBackend | None = None
+) -> SpectrumWatch:
+    """A SpectrumWatch that keeps its state and audit log under tmp_path."""
+    from adws.adw_modules.observability import AuditLogger
+    from adws.adw_spectrum_watch import SpectrumWatch
+
+    return SpectrumWatch(
+        config,
+        notifier=notifier,
+        audit_logger=AuditLogger(log_path=tmp_path / "audit.jsonl"),
+        state_dir=tmp_path / "state",
+    )
+
+
+class TestSignalLoss:
+    """Test signal-loss tracking during the watching phase."""
+
+    def _established_baseline(self) -> SpectrumBaseline:
+        from adws.adw_modules.baseline import SpectrumBaseline
+
+        baseline = SpectrumBaseline(min_scans_required=3, miss_threshold=3)
+        for _ in range(3):
+            baseline.add_scan(_fm_scan(101.9e6, 93.9e6))
+        assert baseline.established is True
+        return baseline
+
+    def test_signal_reported_missing_after_miss_threshold(self) -> None:
+        """Test a baseline signal is reported once absent for miss_threshold scans."""
+        baseline = self._established_baseline()
+
+        for _ in range(2):
+            scan = _fm_scan(93.9e6)
+            baseline.update_presence(scan)
+            assert baseline.get_missing_signals(scan) == []
+
+        scan = _fm_scan(93.9e6)
+        baseline.update_presence(scan)
+        missing = baseline.get_missing_signals(scan)
+
+        assert len(missing) == 1
+        freq_hz, last_power = missing[0]
+        assert abs(freq_hz - 101.9e6) < baseline.tolerance_hz
+        assert last_power == -20.0
+
+    def test_signal_reappearing_resets_misses(self) -> None:
+        """Test a signal seen again starts counting misses from zero."""
+        baseline = self._established_baseline()
+
+        for _ in range(2):
+            baseline.update_presence(_fm_scan(93.9e6))
+        baseline.update_presence(_fm_scan(101.9e6, 93.9e6))
+        scan = _fm_scan(93.9e6)
+        baseline.update_presence(scan)
+
+        assert baseline.get_missing_signals(scan) == []
+
+    def test_scans_of_other_ranges_do_not_count_as_misses(self) -> None:
+        """Test only scans covering a signal's frequency affect its misses."""
+        baseline = self._established_baseline()
+        aircraft = _fm_scan(121.5e6, start_hz=118e6, end_hz=137e6)
+
+        for _ in range(5):
+            baseline.update_presence(aircraft)
+            assert baseline.get_missing_signals(aircraft) == []
+
+        assert all(s.consecutive_misses == 0 for s in baseline.signals.values())
+
+    def test_update_presence_learns_no_new_signals(self) -> None:
+        """Test watching-phase scans do not add signals to the baseline."""
+        baseline = self._established_baseline()
+
+        baseline.update_presence(_fm_scan(101.9e6, 93.9e6, 99.5e6))
+
+        assert len(baseline.signals) == 2
+
+    @pytest.mark.asyncio
+    async def test_watch_raises_signal_loss_alert(self, tmp_path: Path) -> None:
+        """Test SpectrumWatch alerts when a baseline signal disappears."""
+        from adws.adw_modules.notifier import MultiBackend
+        from adws.adw_modules.watch_config import AlertCondition, WatchConfig
+
+        config = WatchConfig(
+            name="fm",
+            custom_range=(87.5e6, 108e6),
+            baseline_scans=3,
+            alert_conditions=[AlertCondition(condition_type="signal_loss")],
+        )
+        watch = _make_watch(tmp_path, config, notifier=MultiBackend([]))
+        for _ in range(3):
+            await watch._process_baseline_scan(_fm_scan(101.9e6, 93.9e6))
+        assert watch.state.status == "watching"
+
+        assert await watch._check_alerts(_fm_scan(93.9e6)) == []
+        assert await watch._check_alerts(_fm_scan(93.9e6)) == []
+        alerts = await watch._check_alerts(_fm_scan(93.9e6))
+
+        assert len(alerts) == 1
+        assert alerts[0].condition.condition_type == "signal_loss"
+        assert "101.9" in alerts[0].message
 
 
 # =============================================================================
