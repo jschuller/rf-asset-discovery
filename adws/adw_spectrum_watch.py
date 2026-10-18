@@ -537,6 +537,8 @@ class SpectrumWatch:
                     message=message,
                 )
             )
+            # One alert per loss: quiet until the signal returns and is lost again
+            self.baseline.mark_loss_reported(freq_hz)
 
         return alerts
 

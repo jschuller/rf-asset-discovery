@@ -35,6 +35,8 @@ class SignalHistory:
     power_samples: list[float] = field(default_factory=list)
     last_seen_scan: int = 0
     consecutive_misses: int = 0
+    # Absent and already alerted on; cleared when the signal is seen again
+    known_missing: bool = False
 
     @property
     def average_power(self) -> float:
@@ -174,7 +176,8 @@ class SpectrumBaseline:
 
         Unlike add_scan, this learns no new signals and adds no power samples.
         Only signals inside the scanned range are touched: a peak within
-        tolerance resets the signal's misses, otherwise they increase by one.
+        tolerance resets the signal's misses (and known_missing), otherwise
+        they increase by one.
 
         Args:
             result: Current scan result.
@@ -184,6 +187,7 @@ class SpectrumBaseline:
                 continue
             if self._is_present(sig, result):
                 sig.consecutive_misses = 0
+                sig.known_missing = False
             else:
                 sig.consecutive_misses += 1
 
@@ -239,6 +243,8 @@ class SpectrumBaseline:
 
         A signal counts as missing once it has been absent from at least
         miss_threshold consecutive scans of its range (see update_presence).
+        Signals already marked known_missing are left out, so each loss is
+        reported once; call mark_loss_reported after alerting.
 
         Args:
             result: Current scan result.
@@ -252,7 +258,11 @@ class SpectrumBaseline:
         missing: list[tuple[float, float]] = []
 
         for sig in self.signals.values():
-            if not sig.is_established or not _in_range(result, sig.frequency_hz):
+            if (
+                not sig.is_established
+                or sig.known_missing
+                or not _in_range(result, sig.frequency_hz)
+            ):
                 continue
 
             if (
@@ -262,6 +272,16 @@ class SpectrumBaseline:
                 missing.append((sig.frequency_hz, sig.average_power))
 
         return missing
+
+    def mark_loss_reported(self, freq_hz: float) -> None:
+        """Stop reporting a missing signal until it is seen again.
+
+        Args:
+            freq_hz: Frequency of the signal, as returned by get_missing_signals.
+        """
+        sig = self._find_matching_signal(freq_hz)
+        if sig is not None:
+            sig.known_missing = True
 
     def get_activity_change(
         self,
@@ -353,6 +373,7 @@ class SpectrumBaseline:
                     "power_samples": v.power_samples,
                     "last_seen_scan": v.last_seen_scan,
                     "consecutive_misses": v.consecutive_misses,
+                    "known_missing": v.known_missing,
                 }
                 for k, v in self.signals.items()
             },
@@ -388,6 +409,7 @@ class SpectrumBaseline:
                 power_samples=sig_data["power_samples"],
                 last_seen_scan=sig_data["last_seen_scan"],
                 consecutive_misses=sig_data.get("consecutive_misses", 0),
+                known_missing=sig_data.get("known_missing", False),
             )
 
         return baseline

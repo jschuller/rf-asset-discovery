@@ -606,6 +606,33 @@ class TestSignalLoss:
         assert len(baseline.signals) == 2
 
     @pytest.mark.asyncio
+    async def test_lost_signal_alerts_once_per_loss(self, tmp_path: Path) -> None:
+        """Test a lost signal alerts once, and again only after it returns and is lost."""
+        from adws.adw_modules.notifier import MultiBackend
+        from adws.adw_modules.watch_config import AlertCondition, WatchConfig
+
+        config = WatchConfig(
+            name="fm",
+            custom_range=(87.5e6, 108e6),
+            baseline_scans=3,
+            alert_conditions=[
+                AlertCondition(condition_type="signal_loss", cooldown_seconds=0)
+            ],
+        )
+        watch = _make_watch(tmp_path, config, notifier=MultiBackend([]))
+        for _ in range(3):
+            await watch._process_baseline_scan(_fm_scan(101.9e6, 93.9e6))
+
+        async def alert_counts(*scans: ScanResult) -> list[int]:
+            return [len(await watch._check_alerts(scan)) for scan in scans]
+
+        lost = _fm_scan(93.9e6)
+        back = _fm_scan(101.9e6, 93.9e6)
+
+        assert await alert_counts(lost, lost, lost, lost, lost, lost) == [0, 0, 1, 0, 0, 0]
+        assert await alert_counts(back, lost, lost, lost, lost) == [0, 0, 0, 1, 0]
+
+    @pytest.mark.asyncio
     async def test_watch_raises_signal_loss_alert(self, tmp_path: Path) -> None:
         """Test SpectrumWatch alerts when a baseline signal disappears."""
         from adws.adw_modules.notifier import MultiBackend
