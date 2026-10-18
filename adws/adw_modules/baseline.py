@@ -35,7 +35,8 @@ class SignalHistory:
     power_samples: list[float] = field(default_factory=list)
     last_seen_scan: int = 0
     consecutive_misses: int = 0
-    # Absent and already alerted on; cleared when the signal is seen again
+    # Absent, and either already alerted on or absent when the baseline was
+    # established; cleared when the signal is seen again
     known_missing: bool = False
 
     @property
@@ -157,6 +158,11 @@ class SpectrumBaseline:
         # Check if baseline is established
         if self.scan_count >= self.min_scans_required and not self.established:
             self.established = True
+            # A signal already gone by now (e.g. seen only in the first scans)
+            # is not reported lost until it returns and disappears again
+            for sig in self.signals.values():
+                if sig.consecutive_misses >= self.miss_threshold:
+                    sig.known_missing = True
             stable_count = sum(1 for s in self.signals.values() if s.is_stable)
             logger.info(
                 "Baseline established: %d signals tracked, %d stable",

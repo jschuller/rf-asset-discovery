@@ -605,6 +605,25 @@ class TestSignalLoss:
 
         assert len(baseline.signals) == 2
 
+    def test_signal_gone_at_establishment_is_not_reported(self) -> None:
+        """Test a signal seen only early in the baseline is not reported lost at once."""
+        from adws.adw_modules.baseline import SpectrumBaseline
+
+        baseline = SpectrumBaseline(min_scans_required=12, miss_threshold=3)
+        for i in range(12):
+            baseline.add_scan(_fm_scan(93.9e6, 101.9e6) if i < 3 else _fm_scan(93.9e6))
+        assert baseline.established is True
+
+        scan = _fm_scan(93.9e6)
+        baseline.update_presence(scan)
+        assert baseline.get_missing_signals(scan) == []
+
+        # Once it comes back, losing it again is reported
+        baseline.update_presence(_fm_scan(93.9e6, 101.9e6))
+        for _ in range(3):
+            baseline.update_presence(scan)
+        assert len(baseline.get_missing_signals(scan)) == 1
+
     @pytest.mark.asyncio
     async def test_lost_signal_alerts_once_per_loss(self, tmp_path: Path) -> None:
         """Test a lost signal alerts once, and again only after it returns and is lost."""
