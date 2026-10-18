@@ -631,6 +631,59 @@ class TestSignalLoss:
         assert "101.9" in alerts[0].message
 
 
+class TestWatchNotifierSetup:
+    """Test SpectrumWatch builds its notifier from config.notifications."""
+
+    def _capture_create_notifier(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> list[str | None]:
+        """Record the ntfy_topic of each create_notifier call."""
+        import adws.adw_spectrum_watch as watch_module
+        from adws.adw_modules.notifier import create_notifier
+
+        topics: list[str | None] = []
+
+        def fake_create_notifier(
+            ntfy_topic: str | None = None, console: bool = True
+        ) -> MultiBackend:
+            topics.append(ntfy_topic)
+            return create_notifier(ntfy_topic=ntfy_topic, console=console)
+
+        monkeypatch.setattr(watch_module, "create_notifier", fake_create_notifier)
+        return topics
+
+    def test_ntfy_topic_entry_enables_ntfy(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test an "ntfy:<topic>" entry, as the watch helpers add, reaches create_notifier."""
+        from adws.adw_modules.notifier import NtfyBackend
+        from adws.adw_modules.watch_config import FrequencyBand, create_watch_for_band
+
+        topics = self._capture_create_notifier(monkeypatch)
+        config = create_watch_for_band(FrequencyBand.FM_BROADCAST)
+        config.notifications.append("ntfy:my-sdr-alerts")
+
+        watch = _make_watch(tmp_path, config)
+
+        assert topics == ["my-sdr-alerts"]
+        assert len(watch.notifier.backends) == 2
+        assert any(isinstance(b, NtfyBackend) for b in watch.notifier.backends)
+
+    def test_no_ntfy_entry_means_console_only(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test a config without an ntfy entry gets no ntfy backend."""
+        from adws.adw_modules.watch_config import WatchConfig
+
+        topics = self._capture_create_notifier(monkeypatch)
+        config = WatchConfig(name="fm", custom_range=(87.5e6, 108e6))
+
+        watch = _make_watch(tmp_path, config)
+
+        assert topics == [None]
+        assert len(watch.notifier.backends) == 1
+
+
 # =============================================================================
 # Alert Tests
 # =============================================================================

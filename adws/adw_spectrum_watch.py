@@ -97,13 +97,15 @@ class SpectrumWatch:
         if notifier is not None:
             self.notifier = notifier
         else:
-            ntfy_topic = None
-            if "ntfy" in config.notifications:
-                # Look for ntfy topic in notifications list
-                for n in config.notifications:
-                    if n.startswith("ntfy:"):
-                        ntfy_topic = n.split(":", 1)[1]
-                        break
+            # The watch helpers add the topic as an "ntfy:<topic>" entry
+            ntfy_topic = next(
+                (
+                    n.split(":", 1)[1]
+                    for n in config.notifications
+                    if n.startswith("ntfy:")
+                ),
+                None,
+            )
             self.notifier = create_notifier(
                 ntfy_topic=ntfy_topic,
                 console="console" in config.notifications,
