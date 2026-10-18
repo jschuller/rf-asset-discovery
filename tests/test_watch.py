@@ -605,6 +605,22 @@ class TestSignalLoss:
 
         assert len(baseline.signals) == 2
 
+    def test_add_scan_counts_misses_only_in_scanned_range(self) -> None:
+        """Test baseline-phase scans of another range leave a signal's misses alone."""
+        from adws.adw_modules.baseline import SpectrumBaseline
+
+        baseline = SpectrumBaseline(min_scans_required=20)
+        baseline.add_scan(_fm_scan(101.9e6))
+        (fm_signal,) = baseline.signals.values()
+
+        for _ in range(4):
+            baseline.add_scan(_fm_scan(121.5e6, start_hz=118e6, end_hz=137e6))
+        assert fm_signal.consecutive_misses == 0
+
+        for _ in range(2):
+            baseline.add_scan(_fm_scan())
+        assert fm_signal.consecutive_misses == 2
+
     def test_signal_gone_at_establishment_is_not_reported(self) -> None:
         """Test a signal seen only early in the baseline is not reported lost at once."""
         from adws.adw_modules.baseline import SpectrumBaseline
