@@ -18,6 +18,14 @@ from rf_asset_discovery.apps.scanner import ScanResult, SignalPeak
 
 logger = logging.getLogger(__name__)
 
+# Power samples a signal needs before it counts as part of the baseline
+MIN_SIGNAL_SAMPLES = 3
+
+
+def _in_range(result: ScanResult, freq_hz: float) -> bool:
+    """Whether a frequency lies inside the range a scan covered."""
+    return result.start_freq_hz <= freq_hz <= result.end_freq_hz
+
 
 @dataclass
 class SignalHistory:
@@ -27,6 +35,9 @@ class SignalHistory:
     power_samples: list[float] = field(default_factory=list)
     last_seen_scan: int = 0
     consecutive_misses: int = 0
+    # Absent, and either already alerted on or absent when the baseline was
+    # established; cleared when the signal is seen again
+    known_missing: bool = False
 
     @property
     def average_power(self) -> float:
@@ -43,9 +54,14 @@ class SignalHistory:
         return statistics.stdev(self.power_samples)
 
     @property
+    def is_established(self) -> bool:
+        """Whether the signal was seen often enough to be tracked for loss."""
+        return len(self.power_samples) >= MIN_SIGNAL_SAMPLES
+
+    @property
     def is_stable(self) -> bool:
         """Whether the signal has been consistently present."""
-        return len(self.power_samples) >= 3 and self.consecutive_misses == 0
+        return self.is_established and self.consecutive_misses == 0
 
 
 @dataclass
@@ -125,9 +141,13 @@ class SpectrumBaseline:
                     last_seen_scan=self.scan_count,
                 )
 
-        # Track misses for signals not seen this scan
+        # Track misses for signals in this scan's range that were not seen
         for key, sig in self.signals.items():
-            if key not in seen_keys and self.scan_count > sig.last_seen_scan:
+            if (
+                key not in seen_keys
+                and self.scan_count > sig.last_seen_scan
+                and _in_range(result, sig.frequency_hz)
+            ):
                 sig.consecutive_misses += 1
 
         # Track total band power
@@ -138,12 +158,44 @@ class SpectrumBaseline:
         # Check if baseline is established
         if self.scan_count >= self.min_scans_required and not self.established:
             self.established = True
+            # A signal already gone by now (e.g. seen only in the first scans)
+            # is not reported lost until it returns and disappears again
+            for sig in self.signals.values():
+                if sig.consecutive_misses >= self.miss_threshold:
+                    sig.known_missing = True
             stable_count = sum(1 for s in self.signals.values() if s.is_stable)
             logger.info(
                 "Baseline established: %d signals tracked, %d stable",
                 len(self.signals),
                 stable_count,
             )
+
+    def _is_present(self, sig: SignalHistory, result: ScanResult) -> bool:
+        """Whether any peak in the scan lies within tolerance of the signal."""
+        return any(
+            abs(p.frequency_hz - sig.frequency_hz) <= self.tolerance_hz
+            for p in result.peaks
+        )
+
+    def update_presence(self, result: ScanResult) -> None:
+        """Update miss counts from a watching-phase scan.
+
+        Unlike add_scan, this learns no new signals and adds no power samples.
+        Only signals inside the scanned range are touched: a peak within
+        tolerance resets the signal's misses (and known_missing), otherwise
+        they increase by one.
+
+        Args:
+            result: Current scan result.
+        """
+        for sig in self.signals.values():
+            if not _in_range(result, sig.frequency_hz):
+                continue
+            if self._is_present(sig, result):
+                sig.consecutive_misses = 0
+                sig.known_missing = False
+            else:
+                sig.consecutive_misses += 1
 
     def is_new_signal(self, peak: SignalPeak) -> bool:
         """Check if a peak represents a new signal not in baseline.
@@ -195,6 +247,11 @@ class SpectrumBaseline:
     ) -> list[tuple[float, float]]:
         """Find baseline signals not present in current scan.
 
+        A signal counts as missing once it has been absent from at least
+        miss_threshold consecutive scans of its range (see update_presence).
+        Signals already marked known_missing are left out, so each loss is
+        reported once; call mark_loss_reported after alerting.
+
         Args:
             result: Current scan result.
 
@@ -204,24 +261,33 @@ class SpectrumBaseline:
         if not self.established:
             return []
 
-        current_freqs = {p.frequency_hz for p in result.peaks}
         missing: list[tuple[float, float]] = []
 
         for sig in self.signals.values():
-            if not sig.is_stable:
+            if (
+                not sig.is_established
+                or sig.known_missing
+                or not _in_range(result, sig.frequency_hz)
+            ):
                 continue
 
-            # Check if any current peak matches this signal
-            found = False
-            for freq in current_freqs:
-                if abs(freq - sig.frequency_hz) <= self.tolerance_hz:
-                    found = True
-                    break
-
-            if not found and sig.consecutive_misses >= self.miss_threshold:
+            if (
+                not self._is_present(sig, result)
+                and sig.consecutive_misses >= self.miss_threshold
+            ):
                 missing.append((sig.frequency_hz, sig.average_power))
 
         return missing
+
+    def mark_loss_reported(self, freq_hz: float) -> None:
+        """Stop reporting a missing signal until it is seen again.
+
+        Args:
+            freq_hz: Frequency of the signal, as returned by get_missing_signals.
+        """
+        sig = self._find_matching_signal(freq_hz)
+        if sig is not None:
+            sig.known_missing = True
 
     def get_activity_change(
         self,
@@ -313,6 +379,7 @@ class SpectrumBaseline:
                     "power_samples": v.power_samples,
                     "last_seen_scan": v.last_seen_scan,
                     "consecutive_misses": v.consecutive_misses,
+                    "known_missing": v.known_missing,
                 }
                 for k, v in self.signals.items()
             },
@@ -348,6 +415,7 @@ class SpectrumBaseline:
                 power_samples=sig_data["power_samples"],
                 last_seen_scan=sig_data["last_seen_scan"],
                 consecutive_misses=sig_data.get("consecutive_misses", 0),
+                known_missing=sig_data.get("known_missing", False),
             )
 
         return baseline

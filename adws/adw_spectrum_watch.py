@@ -97,13 +97,15 @@ class SpectrumWatch:
         if notifier is not None:
             self.notifier = notifier
         else:
-            ntfy_topic = None
-            if "ntfy" in config.notifications:
-                # Look for ntfy topic in notifications list
-                for n in config.notifications:
-                    if n.startswith("ntfy:"):
-                        ntfy_topic = n.split(":", 1)[1]
-                        break
+            # The watch helpers add the topic as an "ntfy:<topic>" entry
+            ntfy_topic = next(
+                (
+                    n.split(":", 1)[1]
+                    for n in config.notifications
+                    if n.startswith("ntfy:")
+                ),
+                None,
+            )
             self.notifier = create_notifier(
                 ntfy_topic=ntfy_topic,
                 console="console" in config.notifications,
@@ -357,6 +359,9 @@ class SpectrumWatch:
         """
         alerts: list[Alert] = []
 
+        # Track signal presence once per scan, whatever the cooldowns
+        self.baseline.update_presence(result)
+
         for condition in self.config.alert_conditions:
             # Check cooldown
             cooldown_key = f"{condition.condition_type}_{condition.frequency_hz}"
@@ -532,6 +537,8 @@ class SpectrumWatch:
                     message=message,
                 )
             )
+            # One alert per loss: quiet until the signal returns and is lost again
+            self.baseline.mark_loss_reported(freq_hz)
 
         return alerts
 
