@@ -229,9 +229,9 @@ class WatchState(BaseModel):
     """Runtime state of a spectrum watch."""
 
     config: WatchConfig
-    status: Literal["idle", "baseline", "watching", "alerting", "paused", "stopped"] = (
-        "idle"
-    )
+    status: Literal[
+        "idle", "baseline", "watching", "alerting", "paused", "stopped", "error"
+    ] = "idle"
     baseline_established: bool = False
     baseline_scans_completed: int = 0
     last_scan_time: datetime | None = None

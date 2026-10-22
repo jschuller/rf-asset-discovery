@@ -430,8 +430,10 @@ class SpectrumBaseline:
 
 FrequencyRange = tuple[float, float]
 
-# Scans of a range that fail in a row before the range is given up on
+# Scans of a range that fail in a row before the range is suspended
 MAX_CONSECUTIVE_SCAN_ERRORS = 5
+# A suspended range is retried once every this many scan cycles
+RETRY_EVERY_CYCLES = 10
 
 
 def _range_key(start_hz: float, end_hz: float) -> FrequencyRange:
@@ -448,9 +450,11 @@ class RangeBaselines:
     all ranges. Here each ScanResult goes to the baseline of the range it
     covers, and each range moves from baselining to watching on its own.
 
-    A range whose scans fail MAX_CONSECUTIVE_SCAN_ERRORS times in a row (for
-    example one the radio cannot tune) is marked failed: it is no longer
-    scanned and does not hold back `established`.
+    A range the radio cannot tune (a FrequencyError) is failed for good. A
+    range whose scans fail MAX_CONSECUTIVE_SCAN_ERRORS times in a row for any
+    other reason (e.g. a USB glitch) is suspended: it is retried once every
+    RETRY_EVERY_CYCLES cycles and resumes on the first good scan. Neither
+    holds back `established`.
 
     Example:
         >>> baselines = RangeBaselines(ranges=[(88e6, 108e6), (118e6, 137e6)])
@@ -464,8 +468,11 @@ class RangeBaselines:
     power_deviation_threshold_db: float = 6.0
     miss_threshold: int = 3
     max_consecutive_errors: int = MAX_CONSECUTIVE_SCAN_ERRORS
+    retry_every_cycles: int = RETRY_EVERY_CYCLES
     baselines: dict[FrequencyRange, SpectrumBaseline] = field(default_factory=dict)
     failed: set[FrequencyRange] = field(default_factory=set)
+    # Suspended range -> cycles left before its next retry
+    suspended: dict[FrequencyRange, int] = field(default_factory=dict)
     _errors: dict[FrequencyRange, int] = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
@@ -498,32 +505,73 @@ class RangeBaselines:
         return self.for_range(start_hz, end_hz).established
 
     def is_failed(self, start_hz: float, end_hz: float) -> bool:
-        """Whether a range was given up on after repeated scan errors."""
+        """Whether a range was given up on for good (the radio cannot tune it)."""
         return _range_key(start_hz, end_hz) in self.failed
 
-    def record_scan_success(self, start_hz: float, end_hz: float) -> None:
-        """Reset a range's consecutive-error count after a good scan."""
-        self._errors.pop(_range_key(start_hz, end_hz), None)
+    def is_suspended(self, start_hz: float, end_hz: float) -> bool:
+        """Whether a range is waiting to be retried after repeated scan errors."""
+        return _range_key(start_hz, end_hz) in self.suspended
 
-    def record_scan_error(self, start_hz: float, end_hz: float) -> bool:
-        """Count a failed scan of a range.
+    def should_scan(self, start_hz: float, end_hz: float) -> bool:
+        """Whether to scan a range this cycle; call once per range per cycle.
 
-        Returns:
-            True if this error made the range failed (once per range).
+        Failed ranges are never scanned; a suspended range is scanned once
+        every retry_every_cycles cycles.
         """
         key = _range_key(start_hz, end_hz)
         if key in self.failed:
             return False
+        if key not in self.suspended:
+            return True
+        self.suspended[key] -= 1
+        if self.suspended[key] > 0:
+            return False
+        self.suspended[key] = self.retry_every_cycles
+        return True
+
+    def record_scan_success(self, start_hz: float, end_hz: float) -> bool:
+        """Reset a range's error count after a good scan.
+
+        Returns:
+            True if the range was suspended and has now recovered.
+        """
+        key = _range_key(start_hz, end_hz)
+        self._errors.pop(key, None)
+        return self.suspended.pop(key, None) is not None
+
+    def record_scan_error(
+        self, start_hz: float, end_hz: float, permanent: bool = False
+    ) -> str | None:
+        """Count a failed scan of a range.
+
+        Args:
+            start_hz: Range start in Hz.
+            end_hz: Range end in Hz.
+            permanent: The error cannot clear up (the radio cannot tune the range).
+
+        Returns:
+            "failed" when the range is now failed for good, "suspended" when it
+            has just been suspended, otherwise None (each reported once).
+        """
+        key = _range_key(start_hz, end_hz)
+        if key in self.failed:
+            return None
+        if permanent:
+            self.suspended.pop(key, None)
+            self.failed.add(key)
+            return "failed"
+        if key in self.suspended:
+            return None  # a retry failed; wait for the next one
         self._errors[key] = self._errors.get(key, 0) + 1
         if self._errors[key] < self.max_consecutive_errors:
-            return False
-        self.failed.add(key)
-        return True
+            return None
+        self.suspended[key] = self.retry_every_cycles
+        return "suspended"
 
     @property
     def active_ranges(self) -> list[FrequencyRange]:
-        """The watch's ranges that have not failed."""
-        return [r for r in self.ranges if r not in self.failed]
+        """The watch's ranges that are neither failed nor suspended."""
+        return [r for r in self.ranges if r not in self.failed and r not in self.suspended]
 
     @property
     def established(self) -> bool:

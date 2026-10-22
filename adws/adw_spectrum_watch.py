@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from rf_asset_discovery.apps.scanner import ScanResult, SpectrumScanner
+from rf_asset_discovery.core.exceptions import FrequencyError
 
 from .adw_modules.baseline import RangeBaselines
 from .adw_modules.notifier import (
@@ -256,19 +257,22 @@ class SpectrumWatch:
                 for start_hz, end_hz in ranges:
                     if not self._running:
                         break
-                    if self.baseline.is_failed(start_hz, end_hz):
-                        continue
+                    if not self.baseline.should_scan(start_hz, end_hz):
+                        continue  # failed for good, or suspended until its next retry
 
                     try:
                         result = await self._execute_scan(start_hz, end_hz)
                     except Exception as e:
                         logger.error("Scan error: %s", e)
                         self.state.error = str(e)
-                        if self.baseline.record_scan_error(start_hz, end_hz):
-                            await self._range_failed(start_hz, end_hz, e)
+                        await self._handle_scan_error(start_hz, end_hz, e)
                         continue
 
-                    self.baseline.record_scan_success(start_hz, end_hz)
+                    if self.baseline.record_scan_success(start_hz, end_hz):
+                        await self._range_event(
+                            start_hz, end_hz, "recovered", "scans again", None
+                        )
+                        await self._after_range_change()
                     try:
                         for alert in await self._process_scan(result):
                             await self._send_alert(alert)
@@ -335,32 +339,65 @@ class SpectrumWatch:
         await self._process_baseline_scan(result)
         return []
 
-    async def _range_failed(self, start_hz: float, end_hz: float, error: Exception) -> None:
-        """Report, once, a range given up on after repeated scan errors."""
-        message = (
-            f"{start_hz / 1e6:.3f}-{end_hz / 1e6:.3f} MHz failed "
-            f"{self.baseline.max_consecutive_errors} scans in a row ({error}); "
-            "no longer scanning it"
-        )
-        logger.error("Range failed: %s", message)
+    async def _range_event(
+        self, start_hz: float, end_hz: float, event: str, message: str, error: Exception | None
+    ) -> None:
+        """Log, audit and notify one change in a range's scan health."""
+        label = f"{start_hz / 1e6:.3f}-{end_hz / 1e6:.3f} MHz"
+        log = logger.info if event == "recovered" else logger.error
+        log("Range %s %s: %s", label, event, message)
         self.audit_logger.log_operation(
             adw_id=f"watch_{self.config.watch_id}",
-            operation="range_failed",
-            params={"start_hz": start_hz, "end_hz": end_hz, "error": str(error)},
+            operation=f"range_{event}",
+            params={
+                "start_hz": start_hz,
+                "end_hz": end_hz,
+                "error": str(error) if error else None,
+            },
         )
         await self.notifier.send(
             Notification(
-                title="Watch Range Failed",
-                message=message,
-                priority=NotificationPriority.HIGH,
-                tags=["sdr", "watch", "error"],
+                title=f"Watch Range {event.title()}",
+                message=f"{label} {message}",
+                priority=(
+                    NotificationPriority.DEFAULT
+                    if event == "recovered"
+                    else NotificationPriority.HIGH
+                ),
+                tags=["sdr", "watch", "error" if event != "recovered" else "recovered"],
             )
         )
+
+    async def _handle_scan_error(self, start_hz: float, end_hz: float, error: Exception) -> None:
+        """Count a scan error; fail, suspend or keep the range, and report changes once."""
+        permanent = isinstance(error, FrequencyError)
+        event = self.baseline.record_scan_error(start_hz, end_hz, permanent=permanent)
+        if event == "failed":
+            await self._range_event(
+                start_hz, end_hz, "failed",
+                f"cannot be tuned ({error}); no longer scanning it", error,
+            )
+        elif event == "suspended":
+            await self._range_event(
+                start_hz, end_hz, "suspended",
+                f"failed {self.baseline.max_consecutive_errors} scans in a row ({error}); "
+                f"retrying every {self.baseline.retry_every_cycles} cycles",
+                error,
+            )
+        if event:
+            await self._after_range_change()
+
+    async def _after_range_change(self) -> None:
+        """Re-derive the watch's status after a range failed, was suspended or recovered."""
         if not self.baseline.active_ranges:
-            self.state.error = "Every frequency range failed; nothing left to watch"
+            if self.state.status not in ("paused", "stopped"):
+                self.state.status = "error"
+            self.state.error = "No frequency range can be scanned; nothing left to watch"
             logger.error(self.state.error)
             return
-        # The failed range may have been the last one holding back the baseline
+        if self.state.status == "error":
+            self.state.status = "watching" if self.baseline.established else "baseline"
+        # The range that dropped out may have been the last one holding back the baseline
         await self._update_phase()
 
     async def _process_baseline_scan(self, result: ScanResult) -> None:

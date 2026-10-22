@@ -34,9 +34,11 @@ uv run rfad-watch --freq 121.5
 
 Each scanned range keeps its own baseline (`--baseline-scans` scans, default 12)
 and is compared only with its own history. A range starts alerting as soon as its
-own baseline is complete, while other ranges may still be baselining. A range whose
-scans fail 5 times in a row (for example one outside the RTL-SDR's 24-1766 MHz) is
-reported once and no longer scanned.
+own baseline is complete, while other ranges may still be baselining. A range the
+radio cannot tune (outside the RTL-SDR's 24-1766 MHz) is reported once and no longer
+scanned. A range whose scans fail 5 times in a row for another reason (e.g. a USB
+glitch) is suspended, retried every 10 cycles, and reported again when it recovers.
+With no range left to scan, the watch status is `error`.
 
 ## Environment
 ```bash
