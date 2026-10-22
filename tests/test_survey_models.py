@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-
 import pytest
 
+from rf_asset_discovery.storage.models import Signal, SignalState
 from rf_asset_discovery.storage.survey_models import (
     BandDefinition,
     SegmentPriority,
@@ -15,8 +14,6 @@ from rf_asset_discovery.storage.survey_models import (
     SurveySegment,
     SurveyStatus,
 )
-from rf_asset_discovery.storage.models import Signal, SignalState
-
 
 # ============================================================================
 # Enum Tests

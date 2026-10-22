@@ -16,11 +16,11 @@ Example:
 
 from rf_asset_discovery.apps.survey.band_catalog import (
     PRIORITY_BANDS,
-    generate_gap_segments,
     generate_full_survey_segments,
+    generate_gap_segments,
 )
-from rf_asset_discovery.apps.survey.manager import SurveyManager
 from rf_asset_discovery.apps.survey.executor import SurveyExecutor
+from rf_asset_discovery.apps.survey.manager import SurveyManager
 
 __all__ = [
     "PRIORITY_BANDS",

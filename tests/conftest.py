@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -27,7 +26,7 @@ class MockSDRDevice:
         self.gain = gain
         self._is_open = False
 
-    def __enter__(self) -> "MockSDRDevice":
+    def __enter__(self) -> MockSDRDevice:
         self._is_open = True
         return self
 

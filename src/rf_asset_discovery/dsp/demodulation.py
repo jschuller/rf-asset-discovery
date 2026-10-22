@@ -215,10 +215,7 @@ def ssb_demodulate(
         Tuple of (audio samples, audio sample rate).
     """
     # For SSB, we take real or imaginary part depending on sideband
-    if upper_sideband:
-        audio = np.real(samples)
-    else:
-        audio = np.imag(samples)
+    audio = np.real(samples) if upper_sideband else np.imag(samples)
 
     # Bandpass filter for voice (300 Hz - 3000 Hz is typical)
     from rf_asset_discovery.dsp.filters import bandpass_filter

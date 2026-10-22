@@ -32,6 +32,17 @@ uv run rfad-watch --freq 121.5
 - `signal_loss` - Expected signal missing
 - `band_activity` - Activity level change
 
+Each scanned range keeps its own baseline (`--baseline-scans` scans, default 12)
+and is compared only with its own history. A range starts alerting as soon as its
+own baseline is complete, while other ranges may still be baselining. A range outside
+the RTL-SDR's 24-1766 MHz is reported once at start and never scanned. Any error while
+scanning counts as transient: after 5 in a row the range is suspended and retried
+after 10 cycles, a wait that doubles after each relapse (up to 64 cycles), and it counts
+as recovered after 3 good scans in a row. With no range left to scan, the watch status
+is `error`, announced on entering and leaving it. A suspension or error is announced at
+most once per hour; one held back is sent later as "still suspended" / "still in error"
+if it has not cleared, so a recovery notice is never the last word for a broken range.
+
 ## Environment
 ```bash
 export DYLD_LIBRARY_PATH=/opt/homebrew/lib

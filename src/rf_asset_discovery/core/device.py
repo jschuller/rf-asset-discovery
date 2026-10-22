@@ -212,15 +212,16 @@ class SDRDevice:
 
             except Exception as e:
                 error_str = str(e).lower()
-                if "overflow" in error_str or "libusb" in error_str:
-                    if attempt < max_retries - 1:
-                        logger.warning(
-                            "USB overflow, retrying (%d/%d)",
-                            attempt + 1,
-                            max_retries,
-                        )
-                        time.sleep(0.1)
-                        continue
+                if (
+                    "overflow" in error_str or "libusb" in error_str
+                ) and attempt < max_retries - 1:
+                    logger.warning(
+                        "USB overflow, retrying (%d/%d)",
+                        attempt + 1,
+                        max_retries,
+                    )
+                    time.sleep(0.1)
+                    continue
                 raise USBError(-1, str(e)) from e
 
         raise DeviceError("Failed to read samples after retries")

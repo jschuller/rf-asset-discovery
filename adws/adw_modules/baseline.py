@@ -426,3 +426,258 @@ class SpectrumBaseline:
         self.total_power_history.clear()
         self.scan_count = 0
         self.established = False
+
+
+FrequencyRange = tuple[float, float]
+
+# Scans of a range that fail in a row before the range is suspended
+MAX_CONSECUTIVE_SCAN_ERRORS = 5
+# A suspended range is first retried after this many scan cycles; each relapse
+# doubles the wait, up to MAX_RETRY_CYCLES
+RETRY_EVERY_CYCLES = 10
+MAX_RETRY_CYCLES = 64
+# Good scans in a row before a suspended range counts as recovered
+RECOVERY_SCANS = 3
+
+
+def _range_key(start_hz: float, end_hz: float) -> FrequencyRange:
+    return (float(start_hz), float(end_hz))
+
+
+@dataclass
+class RangeBaselines:
+    """One SpectrumBaseline per scanned frequency range.
+
+    A multi-band watch scans several ranges in turn. Sharing one baseline
+    between them would count every range's scan towards the same
+    min_scans_required and compare one range's power with the average over
+    all ranges. Here each ScanResult goes to the baseline of the range it
+    covers, and each range moves from baselining to watching on its own.
+
+    A range outside the radio's tuning range is failed for good by
+    fail_untunable(), before any scan. Runtime scan errors are all treated as
+    transient (a libusb error while re-tuning surfaces as FrequencyError too):
+    after MAX_CONSECUTIVE_SCAN_ERRORS in a row the range is suspended and
+    retried after RETRY_EVERY_CYCLES cycles, a wait that doubles after each
+    relapse up to MAX_RETRY_CYCLES. It counts as recovered, and the wait
+    resets, after RECOVERY_SCANS good scans in a row. Failed and suspended
+    ranges do not hold back `established`.
+
+    Example:
+        >>> baselines = RangeBaselines(ranges=[(88e6, 108e6), (118e6, 137e6)])
+        >>> baselines.add_scan(result)  # routed by result's start/end frequency
+        >>> baselines.for_result(result).is_new_signal(peak)
+    """
+
+    ranges: list[FrequencyRange] = field(default_factory=list)
+    tolerance_hz: float = 50000
+    min_scans_required: int = 12
+    power_deviation_threshold_db: float = 6.0
+    miss_threshold: int = 3
+    max_consecutive_errors: int = MAX_CONSECUTIVE_SCAN_ERRORS
+    retry_every_cycles: int = RETRY_EVERY_CYCLES
+    max_retry_cycles: int = MAX_RETRY_CYCLES
+    recovery_scans: int = RECOVERY_SCANS
+    baselines: dict[FrequencyRange, SpectrumBaseline] = field(default_factory=dict)
+    failed: set[FrequencyRange] = field(default_factory=set)
+    # Suspended range -> cycles left before its next retry
+    suspended: dict[FrequencyRange, int] = field(default_factory=dict)
+    _errors: dict[FrequencyRange, int] = field(default_factory=dict, repr=False)
+    # Current retry wait per range (doubled on relapse), and ranges that came
+    # back from suspension -> good scans in a row since
+    _retry_wait: dict[FrequencyRange, int] = field(default_factory=dict, repr=False)
+    _recovering: dict[FrequencyRange, int] = field(default_factory=dict, repr=False)
+
+    def __post_init__(self) -> None:
+        self.ranges = [_range_key(start, end) for start, end in self.ranges]
+        for start_hz, end_hz in self.ranges:
+            self.for_range(start_hz, end_hz)
+
+    def for_range(self, start_hz: float, end_hz: float) -> SpectrumBaseline:
+        """The baseline of a range, created empty on first use."""
+        key = _range_key(start_hz, end_hz)
+        if key not in self.baselines:
+            self.baselines[key] = SpectrumBaseline(
+                tolerance_hz=self.tolerance_hz,
+                min_scans_required=self.min_scans_required,
+                power_deviation_threshold_db=self.power_deviation_threshold_db,
+                miss_threshold=self.miss_threshold,
+            )
+        return self.baselines[key]
+
+    def for_result(self, result: ScanResult) -> SpectrumBaseline:
+        """The baseline of the range a scan covered."""
+        return self.for_range(result.start_freq_hz, result.end_freq_hz)
+
+    def add_scan(self, result: ScanResult) -> None:
+        """Add a baseline-phase scan to its range's baseline."""
+        self.for_result(result).add_scan(result)
+
+    def is_range_established(self, start_hz: float, end_hz: float) -> bool:
+        """Whether a range has finished its own baseline."""
+        return self.for_range(start_hz, end_hz).established
+
+    def is_failed(self, start_hz: float, end_hz: float) -> bool:
+        """Whether a range was given up on for good (the radio cannot tune it)."""
+        return _range_key(start_hz, end_hz) in self.failed
+
+    def is_suspended(self, start_hz: float, end_hz: float) -> bool:
+        """Whether a range is waiting to be retried after repeated scan errors."""
+        return _range_key(start_hz, end_hz) in self.suspended
+
+    def fail_untunable(self, min_hz: float, max_hz: float) -> list[FrequencyRange]:
+        """Fail, for good, every range not wholly inside min_hz..max_hz.
+
+        Returns:
+            The ranges failed by this call.
+        """
+        newly = [
+            r
+            for r in self.ranges
+            if r not in self.failed and not (min_hz <= r[0] and r[1] <= max_hz)
+        ]
+        for r in newly:
+            self.failed.add(r)
+            self.suspended.pop(r, None)
+        return newly
+
+    def should_scan(self, start_hz: float, end_hz: float) -> bool:
+        """Whether to scan a range this cycle; call once per range per cycle.
+
+        Failed ranges are never scanned; a suspended range is scanned when its
+        retry wait has run out.
+        """
+        key = _range_key(start_hz, end_hz)
+        if key in self.failed:
+            return False
+        if key not in self.suspended:
+            return True
+        self.suspended[key] -= 1
+        return self.suspended[key] <= 0
+
+    def _suspend(self, key: FrequencyRange, wait: int) -> None:
+        self._retry_wait[key] = wait
+        self.suspended[key] = wait
+        self._recovering.pop(key, None)
+
+    def record_scan_success(self, start_hz: float, end_hz: float) -> str | None:
+        """Count a good scan of a range.
+
+        Returns:
+            "recovered" when a suspended range has had recovery_scans good
+            scans in a row (once per suspension), otherwise None.
+        """
+        key = _range_key(start_hz, end_hz)
+        self._errors.pop(key, None)
+        if self.suspended.pop(key, None) is not None:
+            self._recovering[key] = 0
+        if key not in self._recovering:
+            return None
+        self._recovering[key] += 1
+        if self._recovering[key] < self.recovery_scans:
+            return None
+        del self._recovering[key]
+        self._retry_wait.pop(key, None)  # the next suspension starts from the base wait
+        return "recovered"
+
+    def record_scan_error(self, start_hz: float, end_hz: float) -> str | None:
+        """Count a failed scan of a range; every runtime error is transient.
+
+        Returns:
+            "suspended" when a healthy range has just been suspended, otherwise
+            None (a failed retry or a relapse while recovering re-suspends the
+            range quietly, with a doubled wait).
+        """
+        key = _range_key(start_hz, end_hz)
+        if key in self.failed:
+            return None
+        if key in self.suspended or key in self._recovering:
+            doubled = self._retry_wait.get(key, self.retry_every_cycles) * 2
+            self._suspend(key, min(doubled, self.max_retry_cycles))
+            return None
+        self._errors[key] = self._errors.get(key, 0) + 1
+        if self._errors[key] < self.max_consecutive_errors:
+            return None
+        self._errors.pop(key, None)
+        self._suspend(key, self.retry_every_cycles)
+        return "suspended"
+
+    @property
+    def active_ranges(self) -> list[FrequencyRange]:
+        """The watch's ranges that are neither failed nor suspended."""
+        return [r for r in self.ranges if r not in self.failed and r not in self.suspended]
+
+    @property
+    def established(self) -> bool:
+        """Whether every active range of the watch has its baseline."""
+        active = self.active_ranges
+        return bool(active) and all(self.baselines[r].established for r in active)
+
+    @property
+    def scan_count(self) -> int:
+        """Baseline scans completed by every active range (the slowest one's count)."""
+        active = self.active_ranges
+        if not active:
+            return 0
+        return min(self.baselines[r].scan_count for r in active)
+
+    def get_baseline_signals(self) -> list[tuple[float, float]]:
+        """Stable signals of the watch's ranges, as (frequency_hz, average_power_db)."""
+        return [sig for r in self.ranges for sig in self.baselines[r].get_baseline_signals()]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the baselines of the watch's ranges for persistence."""
+        return {
+            "ranges": [
+                {
+                    "start_hz": start,
+                    "end_hz": end,
+                    "baseline": self.baselines[(start, end)].to_dict(),
+                }
+                for start, end in self.ranges
+            ]
+        }
+
+    @classmethod
+    def from_dict(
+        cls,
+        data: dict[str, Any],
+        ranges: list[FrequencyRange],
+        min_scans_required: int = 12,
+    ) -> RangeBaselines:
+        """Restore per-range baselines saved by to_dict.
+
+        Saved baselines of ranges the watch no longer scans are dropped (and
+        logged). State saved by older versions holds a single baseline: on a
+        one-range watch it is that range's baseline; with several ranges it
+        mixes them, cannot be split, and is discarded so the baseline is
+        established again.
+
+        Args:
+            data: Dictionary from to_dict (or an older single-baseline dict).
+            ranges: The ranges the watch scans.
+            min_scans_required: Baseline scans each range needs.
+
+        Returns:
+            The restored RangeBaselines.
+        """
+        restored = cls(ranges=ranges, min_scans_required=min_scans_required)
+        if "ranges" in data:
+            for entry in data["ranges"]:
+                key = _range_key(entry["start_hz"], entry["end_hz"])
+                if key not in restored.ranges:
+                    logger.warning(
+                        "Dropping saved baseline of %.3f-%.3f MHz: the watch no longer scans it",
+                        key[0] / 1e6,
+                        key[1] / 1e6,
+                    )
+                    continue
+                restored.baselines[key] = SpectrumBaseline.from_dict(entry["baseline"])
+        elif len(restored.ranges) == 1:
+            restored.baselines[restored.ranges[0]] = SpectrumBaseline.from_dict(data)
+        elif data:
+            logger.warning(
+                "Saved baseline mixes %d ranges; establishing a new baseline per range",
+                len(restored.ranges),
+            )
+        return restored

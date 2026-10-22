@@ -327,7 +327,7 @@ class Signal(BaseModel):
     month: int = Field(..., description="Month for partitioning")
 
     @model_validator(mode="after")
-    def derive_band(self) -> "Signal":
+    def derive_band(self) -> Signal:
         """Auto-derive freq_band from frequency_hz."""
         if self.freq_band == "unknown":
             self.freq_band = _derive_freq_band(self.frequency_hz)

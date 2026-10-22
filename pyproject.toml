@@ -19,7 +19,7 @@ dependencies = [
 [project.optional-dependencies]
 plot = ["matplotlib>=3.7.0"]
 agent = ["pydantic>=2.0.0"]
-adsb = ["pyModeS>=2.0"]
+adsb = ["pyModeS>=2.0,<3"]  # 3.0 removed the v2 API (pms.crc, pms.adsb) the decoder uses
 ui = ["rich>=13.0"]
 storage = [
     "duckdb>=1.0.0",
@@ -65,8 +65,14 @@ rfad-transform = "rf_asset_discovery.cli.main:medallion_transform"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.uv]
+# Supply-chain cooldown (homelab baseline): uv.lock is not committed, so every
+# resolve, including CI's, ignores releases younger than a week
+exclude-newer = "1 week"
+
 [tool.hatch.build.targets.wheel]
-packages = ["src/rf_asset_discovery"]
+# adws holds the spectrum watch that rfad-watch imports
+packages = ["src/rf_asset_discovery", "adws"]
 
 [tool.mypy]
 strict = true
@@ -78,10 +84,17 @@ exclude = ["tests/"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+# Exploratory notebooks are kept as a record of the analysis, not maintained code
+extend-exclude = ["notebooks"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "UP", "ANN", "B", "C4", "SIM"]
-ignore = ["ANN101", "ANN102"]  # self/cls type annotations
+
+[tool.ruff.lint.flake8-annotations]
+allow-star-arg-any = true  # **kwargs: Any passed through to WatchConfig
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN"]  # test functions and fixtures need no annotations
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

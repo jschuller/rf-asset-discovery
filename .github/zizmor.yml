@@ -1,0 +1,7 @@
+# zizmor configuration (homelab-governance supply-chain baseline; same rules as sn-docs-harvester).
+# Any ignore goes inline at the finding (`# zizmor: ignore[<audit>]`) with its reason, not here.
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        "*": hash-pin # every action, ours included, by full commit SHA

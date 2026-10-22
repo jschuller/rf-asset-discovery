@@ -101,16 +101,16 @@ class NtfyBackend:
         self.auth_token = auth_token
         self._client: Any = None
 
-    async def _get_client(self) -> Any:
+    async def _get_client(self) -> Any:  # noqa: ANN401 - httpx.AsyncClient, imported lazily
         """Get or create HTTP client lazily."""
         if self._client is None:
             try:
                 import httpx
 
                 self._client = httpx.AsyncClient(timeout=30.0)
-            except ImportError:
+            except ImportError as e:
                 logger.error("httpx not installed. Run: pip install httpx")
-                raise RuntimeError("httpx required for ntfy.sh notifications")
+                raise RuntimeError("httpx required for ntfy.sh notifications") from e
         return self._client
 
     async def send(self, notification: Notification) -> bool:
@@ -196,7 +196,7 @@ class ConsoleBackend:
         self.use_rich = use_rich
         self._console: Any = None
 
-    def _get_console(self) -> Any:
+    def _get_console(self) -> Any:  # noqa: ANN401 - rich Console, imported lazily
         """Get Rich console if available."""
         if self._console is None and self.use_rich:
             try:

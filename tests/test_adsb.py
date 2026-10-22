@@ -4,26 +4,26 @@ from __future__ import annotations
 
 import pytest
 
+# The decoder needs pyModeS (the "adsb" extra); skip the module without it
+pytest.importorskip("pyModeS")
+
 
 class TestADSBImports:
     """Test ADS-B decoder imports."""
 
     def test_decoder_imports(self):
         """Test that decoder module imports correctly."""
-        try:
-            from rf_asset_discovery.decoders import (
-                ADSBMessage,
-                decode_adsb_message,
-                decode_adsb_messages,
-                is_valid_adsb,
-            )
+        from rf_asset_discovery.decoders import (
+            ADSBMessage,
+            decode_adsb_message,
+            decode_adsb_messages,
+            is_valid_adsb,
+        )
 
-            assert ADSBMessage is not None
-            assert callable(decode_adsb_message)
-            assert callable(decode_adsb_messages)
-            assert callable(is_valid_adsb)
-        except ImportError:
-            pytest.skip("pyModeS not installed")
+        assert ADSBMessage is not None
+        assert callable(decode_adsb_message)
+        assert callable(decode_adsb_messages)
+        assert callable(is_valid_adsb)
 
 
 class TestIsValidADSB:
@@ -31,38 +31,29 @@ class TestIsValidADSB:
 
     def test_valid_message(self):
         """Test with valid ADS-B message."""
-        try:
-            from rf_asset_discovery.decoders import is_valid_adsb
+        from rf_asset_discovery.decoders import is_valid_adsb
 
-            # Known valid ADS-B message (aircraft identification)
-            msg = "8D4840D6202CC371C32CE0576098"
-            assert is_valid_adsb(msg) is True
-        except ImportError:
-            pytest.skip("pyModeS not installed")
+        # Known valid ADS-B message (aircraft identification)
+        msg = "8D4840D6202CC371C32CE0576098"
+        assert is_valid_adsb(msg) is True
 
     def test_invalid_length(self):
         """Test with wrong length message."""
-        try:
-            from rf_asset_discovery.decoders import is_valid_adsb
+        from rf_asset_discovery.decoders import is_valid_adsb
 
-            # Too short
-            assert is_valid_adsb("8D4840D6") is False
+        # Too short
+        assert is_valid_adsb("8D4840D6") is False
 
-            # Too long
-            assert is_valid_adsb("8D4840D6202CC371C32CE0576098FFFF") is False
-        except ImportError:
-            pytest.skip("pyModeS not installed")
+        # Too long
+        assert is_valid_adsb("8D4840D6202CC371C32CE0576098FFFF") is False
 
     def test_invalid_crc(self):
         """Test with invalid CRC."""
-        try:
-            from rf_asset_discovery.decoders import is_valid_adsb
+        from rf_asset_discovery.decoders import is_valid_adsb
 
-            # Valid length but corrupted (bad CRC)
-            msg = "8D4840D6202CC371C32CE0576099"  # Changed last byte
-            assert is_valid_adsb(msg) is False
-        except ImportError:
-            pytest.skip("pyModeS not installed")
+        # Valid length but corrupted (bad CRC)
+        msg = "8D4840D6202CC371C32CE0576099"  # Changed last byte
+        assert is_valid_adsb(msg) is False
 
 
 class TestDecodeADSBMessage:
@@ -70,30 +61,24 @@ class TestDecodeADSBMessage:
 
     def test_decode_identification(self):
         """Test decoding aircraft identification message."""
-        try:
-            from rf_asset_discovery.decoders import decode_adsb_message
+        from rf_asset_discovery.decoders import decode_adsb_message
 
-            # Aircraft identification message (typecode 1-4)
-            msg = "8D4840D6202CC371C32CE0576098"
-            result = decode_adsb_message(msg)
+        # Aircraft identification message (typecode 1-4)
+        msg = "8D4840D6202CC371C32CE0576098"
+        result = decode_adsb_message(msg)
 
-            assert result is not None
-            assert result.icao == "4840D6"
-            assert 1 <= result.typecode <= 4
-            assert result.callsign is not None
-        except ImportError:
-            pytest.skip("pyModeS not installed")
+        assert result is not None
+        assert result.icao == "4840D6"
+        assert 1 <= result.typecode <= 4
+        assert result.callsign is not None
 
     def test_decode_invalid_message(self):
         """Test decoding returns None for invalid message."""
-        try:
-            from rf_asset_discovery.decoders import decode_adsb_message
+        from rf_asset_discovery.decoders import decode_adsb_message
 
-            # Invalid message
-            result = decode_adsb_message("invalid")
-            assert result is None
-        except ImportError:
-            pytest.skip("pyModeS not installed")
+        # Invalid message
+        result = decode_adsb_message("invalid")
+        assert result is None
 
 
 class TestDecodeADSBMessages:
@@ -101,31 +86,25 @@ class TestDecodeADSBMessages:
 
     def test_decode_multiple(self):
         """Test decoding multiple messages."""
-        try:
-            from rf_asset_discovery.decoders import decode_adsb_messages
+        from rf_asset_discovery.decoders import decode_adsb_messages
 
-            messages = [
-                "8D4840D6202CC371C32CE0576098",  # Valid
-                "invalid",  # Invalid
-                "8D4840D6202CC371C32CE0576098",  # Valid duplicate
-            ]
+        messages = [
+            "8D4840D6202CC371C32CE0576098",  # Valid
+            "invalid",  # Invalid
+            "8D4840D6202CC371C32CE0576098",  # Valid duplicate
+        ]
 
-            results = decode_adsb_messages(messages)
+        results = decode_adsb_messages(messages)
 
-            # Should only get 2 valid results
-            assert len(results) == 2
-        except ImportError:
-            pytest.skip("pyModeS not installed")
+        # Should only get 2 valid results
+        assert len(results) == 2
 
     def test_decode_empty_list(self):
         """Test decoding empty list."""
-        try:
-            from rf_asset_discovery.decoders import decode_adsb_messages
+        from rf_asset_discovery.decoders import decode_adsb_messages
 
-            results = decode_adsb_messages([])
-            assert len(results) == 0
-        except ImportError:
-            pytest.skip("pyModeS not installed")
+        results = decode_adsb_messages([])
+        assert len(results) == 0
 
 
 class TestADSBMessage:
@@ -133,21 +112,18 @@ class TestADSBMessage:
 
     def test_message_to_dict(self):
         """Test converting message to dictionary."""
-        try:
-            from rf_asset_discovery.decoders import ADSBMessage
+        from rf_asset_discovery.decoders import ADSBMessage
 
-            msg = ADSBMessage(
-                raw="8D4840D6202CC371C32CE0576098",
-                icao="4840D6",
-                typecode=4,
-                downlink_format=17,
-                callsign="TEST123",
-                message_type="identification",
-            )
+        msg = ADSBMessage(
+            raw="8D4840D6202CC371C32CE0576098",
+            icao="4840D6",
+            typecode=4,
+            downlink_format=17,
+            callsign="TEST123",
+            message_type="identification",
+        )
 
-            d = msg.to_dict()
-            assert d["icao"] == "4840D6"
-            assert d["callsign"] == "TEST123"
-            assert d["message_type"] == "identification"
-        except ImportError:
-            pytest.skip("pyModeS not installed")
+        d = msg.to_dict()
+        assert d["icao"] == "4840D6"
+        assert d["callsign"] == "TEST123"
+        assert d["message_type"] == "identification"

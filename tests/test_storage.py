@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -11,7 +10,6 @@ from rf_asset_discovery.storage import (
     Asset,
     CMDBCIClass,
     DeviceCategory,
-    NetworkScan,
     PurdueLevel,
     RFProtocol,
     RiskLevel,
@@ -28,7 +26,6 @@ from rf_asset_discovery.storage import (
     infer_device_category,
     infer_purdue_level,
 )
-
 
 # ============================================================================
 # Model Tests

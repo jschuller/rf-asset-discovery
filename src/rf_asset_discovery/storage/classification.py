@@ -10,6 +10,8 @@ Provides automatic inference of:
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 from rf_asset_discovery.storage.models import (
     Asset,
     CMDBCIClass,
@@ -344,9 +346,6 @@ def auto_classify_asset(asset: Asset) -> Asset:
 # =============================================================================
 # Band-to-Protocol Mapping (for Medallion Architecture Transformations)
 # =============================================================================
-
-from typing import NamedTuple
-
 
 class BandProtocolInfo(NamedTuple):
     """Band to protocol mapping info for medallion transforms."""

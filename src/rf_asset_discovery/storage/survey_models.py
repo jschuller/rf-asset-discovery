@@ -13,7 +13,6 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-
 # ============================================================================
 # Survey Enums
 # ============================================================================
@@ -194,7 +193,9 @@ class SpectrumSurvey(BaseModel):
     run_number: int | None = Field(default=None, description="Auto-incremented per location")
     timezone: str | None = Field(default=None, description="Timezone")
     conditions_notes: str | None = Field(default=None, description="Conditions/weather notes")
-    baseline_survey_id: str | None = Field(default=None, description="Baseline survey for comparison")
+    baseline_survey_id: str | None = Field(
+        default=None, description="Baseline survey for comparison"
+    )
 
     @property
     def coverage_mhz(self) -> float:
@@ -293,7 +294,9 @@ class SurveyLocation(BaseModel):
         default=None,
         description="Environment type",
     )
-    default_antenna: str | None = Field(default=None, description="Default antenna for this location")
+    default_antenna: str | None = Field(
+        default=None, description="Default antenna for this location"
+    )
     created_at: datetime = Field(
         default_factory=datetime.now,
         description="Location creation time",

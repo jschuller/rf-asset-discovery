@@ -8,17 +8,16 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from rf_asset_discovery.apps.scanner import ScanResult, SpectrumScanner
+from rf_asset_discovery.apps.scanner import SpectrumScanner
+from rf_asset_discovery.storage.models import Asset, RFProtocol, Signal, SignalState
 from rf_asset_discovery.storage.survey_models import (
-    SegmentStatus,
-    SpectrumSurvey,
     SurveySegment,
     SurveyStatus,
 )
-from rf_asset_discovery.storage.models import Asset, RFProtocol, Signal, SignalState
 
 if TYPE_CHECKING:
     from rf_asset_discovery.apps.survey.manager import SurveyManager
@@ -107,7 +106,6 @@ class SurveyExecutor:
             scan_time = time.time() - start_time
 
             # Record signals
-            signals_recorded = 0
             for peak in scan_result.peaks:
                 self.manager.record_signal(
                     survey_id=segment.survey_id,
@@ -116,7 +114,6 @@ class SurveyExecutor:
                     power_db=peak.power_db,
                     bandwidth_hz=peak.bandwidth_hz,
                 )
-                signals_recorded += 1
 
             # Complete segment
             self.manager.complete_segment(

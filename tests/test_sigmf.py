@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import tempfile
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -54,7 +53,9 @@ class TestSigMFRecording:
     def test_to_numpy(self) -> None:
         """Test loading samples as numpy array."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            original_samples = np.random.randn(512).astype(np.complex64) + 1j * np.random.randn(512).astype(np.float32)
+            original_samples = np.random.randn(512).astype(np.complex64) + 1j * np.random.randn(
+                512
+            ).astype(np.float32)
             original_samples = original_samples.astype(np.complex64)
 
             recording = SigMFRecording.create(

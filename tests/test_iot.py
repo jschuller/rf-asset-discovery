@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -19,7 +18,6 @@ from rf_asset_discovery.decoders.iot import (
 )
 from rf_asset_discovery.decoders.iot.classifier import extract_telemetry
 from rf_asset_discovery.storage.models import RFProtocol
-
 
 # ============================================================================
 # Protocol Classification Tests
