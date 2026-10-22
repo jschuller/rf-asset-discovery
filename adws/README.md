@@ -1,43 +1,67 @@
 # RF Asset Discovery - Agentic Developer Workflows
 
-AI-driven SDR operations using Claude Code CLI.
+Autonomous spectrum monitoring, plus helpers for running Claude Code from Python.
 
-## Workflows
+The earlier scan, record and analyze ADW scripts were folded into the
+`/survey` and `/capture` slash commands; `adw_spectrum_watch.py` is the one
+workflow left in this package.
 
-| Script | Purpose | Usage |
+## Workflow
+
+| Module | Purpose | Usage |
 |--------|---------|-------|
-| `adw_sdr_scan.py` | Spectrum scanning | `uv run adw_sdr_scan.py 87.5 108.0` |
-| `adw_sdr_record.py` | Signal recording | `uv run adw_sdr_record.py 101.9 30` |
-| `adw_sdr_analyze.py` | Recording analysis | `uv run adw_sdr_analyze.py recording.sigmf-meta` |
+| `adw_spectrum_watch.py` | Continuous watch: baseline, then alerts | `uv run rfad-watch --band fm` (see `uv run rfad-watch --help`) |
+
+`rfad-watch` is the command-line entry point (`rf_asset_discovery.cli.main:spectrum_watch`).
 
 ## Core Modules
 
 | Module | Purpose |
 |--------|---------|
-| `adw_modules/agent.py` | Claude Code CLI execution |
-| `adw_modules/data_models.py` | Pydantic models (SDRTask, ScanResult) |
-| `adw_modules/observability.py` | Audit logging, compliance awareness |
+| `adw_modules/watch_config.py` | Pydantic models (`WatchConfig`, `AlertCondition`, `Alert`, `WatchState`), bands and notable frequencies, natural-language parsing |
+| `adw_modules/baseline.py` | `SpectrumBaseline` (signals and power of one range) and `RangeBaselines` (one baseline per scanned range) |
+| `adw_modules/notifier.py` | Notification backends: ntfy.sh, console, `MultiBackend` |
+| `adw_modules/observability.py` | Audit logging (JSON Lines), compliance awareness, session statistics |
+| `adw_modules/agent.py` | Claude Code CLI execution (`AgentRequest`, `run_claude_agent`) |
 
 ## Observability Features
 
-1. **Audit Logging** - JSON Lines format (`audit.jsonl`)
+1. **Audit Logging** - JSON Lines format (`AuditLogger`, default `audit.jsonl`; a watch writes `watch_audit.jsonl`)
 2. **Compliance Awareness** - Frequency band classification (informational only)
-3. **Session Statistics** - Track scans, recordings, frequencies
+3. **Session Statistics** - `SessionStats` tracks scans, recordings and frequencies
 
 ## Integration Pattern
 
 ```python
+import asyncio
+
+from adws import watch_band
 from adws.adw_modules import (
-    run_claude_agent,
+    AgentRequest,
     AuditLogger,
     ComplianceChecker,
+    FrequencyBand,
+    generate_adw_id,
+    run_claude_agent,
 )
 
-# Execute agentic workflow
-result = run_claude_agent(
-    prompt="Scan FM band and identify strongest signals",
-    allowed_tools=["Bash", "Read", "Write"],
+# Start a watch (needs an RTL-SDR); it runs until stopped
+async def main() -> None:
+    watch = await watch_band(FrequencyBand.AIRCRAFT_VHF, ntfy_topic="my-sdr-alerts")
+    await asyncio.sleep(600)
+    await watch.stop()
+
+asyncio.run(main())
+
+# Execute an agentic workflow through the Claude Code CLI
+response = run_claude_agent(
+    AgentRequest(
+        prompt="Scan FM band and identify strongest signals",
+        adw_id=generate_adw_id("adw_scan"),
+        allowed_tools=["Bash", "Read", "Write"],
+    )
 )
+print(response.success, response.output)
 
 # Log operation
 logger = AuditLogger()
