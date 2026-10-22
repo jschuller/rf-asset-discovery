@@ -3,46 +3,77 @@
 Run with: streamlit run dashboard.py
 """
 
-import os
-import streamlit as st
+from __future__ import annotations
+
+from pathlib import Path
+
 import duckdb
 import pandas as pd
+import streamlit as st
 
-# Page config
-st.set_page_config(
-    page_title="RF Asset Discovery Dashboard",
-    page_icon="📡",
-    layout="wide",
+# Resolved from this file, not the working directory, so the dashboard finds
+# its data wherever `streamlit run` is started
+DATA_DIR = Path(__file__).resolve().parent / "data"
+
+MISSING_LAYERS_HELP = (
+    "This database has no medallion layers yet (bronze.signals, "
+    "silver.verified_signals, gold.rf_assets). Build them with "
+    "`uv run rfad-transform full --db <path>`."
 )
 
-st.title("📡 RF Asset Discovery - RF Asset Dashboard")
+
+def find_database(data_dir: Path = DATA_DIR) -> tuple[Path, bool] | None:
+    """Locate the database to show.
+
+    Args:
+        data_dir: Directory holding unified.duckdb or example.duckdb.
+
+    Returns:
+        (path, is_example), or None if neither database exists.
+    """
+    unified = data_dir / "unified.duckdb"
+    if unified.exists():
+        return unified, False
+    example = data_dir / "example.duckdb"
+    if example.exists():
+        return example, True
+    return None
 
 
 @st.cache_resource
-def get_connection():
-    """Get DuckDB connection (cached).
+def get_connection(db_path: str) -> duckdb.DuckDBPyConnection:
+    """Open a read-only DuckDB connection (cached per path)."""
+    return duckdb.connect(db_path, read_only=True)
 
-    Uses unified.duckdb if available, otherwise falls back to example.duckdb.
+
+def get_layer_counts(conn: duckdb.DuckDBPyConnection) -> dict[str, int] | None:
+    """Get record counts for each layer.
+
+    Returns:
+        Counts per layer, or None if a layer's schema or table is missing
+        (e.g. a database from rfad-scan before rfad-transform has run).
     """
-    if os.path.exists("data/unified.duckdb"):
-        return duckdb.connect("data/unified.duckdb", read_only=True)
-    elif os.path.exists("data/example.duckdb"):
-        st.info("📊 Using example dataset. Run rfad-scan to collect your own data.")
-        return duckdb.connect("data/example.duckdb", read_only=True)
-    else:
-        st.error("No database found. Run rfad-scan or download example.duckdb.")
-        st.stop()
+    try:
+        bronze = conn.execute("SELECT COUNT(*) FROM bronze.signals").fetchone()
+        silver = conn.execute("SELECT COUNT(*) FROM silver.verified_signals").fetchone()
+        gold = conn.execute("SELECT COUNT(*) FROM gold.rf_assets").fetchone()
+    except duckdb.CatalogException:
+        return None
+    return {
+        "bronze": bronze[0] if bronze else 0,
+        "silver": silver[0] if silver else 0,
+        "gold": gold[0] if gold else 0,
+    }
 
 
-def get_layer_counts(conn) -> dict:
-    """Get record counts for each layer."""
-    bronze = conn.execute("SELECT COUNT(*) FROM bronze.signals").fetchone()[0]
-    silver = conn.execute("SELECT COUNT(*) FROM silver.verified_signals").fetchone()[0]
-    gold = conn.execute("SELECT COUNT(*) FROM gold.rf_assets").fetchone()[0]
-    return {"bronze": bronze, "silver": silver, "gold": gold}
+def promotion_rate(counts: dict[str, int]) -> str:
+    """Share of silver signals promoted to gold, or "n/a" when silver is empty."""
+    if not counts["silver"]:
+        return "n/a"
+    return f"{counts['gold'] / counts['silver'] * 100:.1f}%"
 
 
-def get_band_distribution(conn) -> pd.DataFrame:
+def get_band_distribution(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
     """Get signal count by frequency band."""
     return conn.execute("""
         SELECT
@@ -58,7 +89,7 @@ def get_band_distribution(conn) -> pd.DataFrame:
     """).fetchdf()
 
 
-def get_risk_distribution(conn) -> pd.DataFrame:
+def get_risk_distribution(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
     """Get asset count by risk level."""
     return conn.execute("""
         SELECT
@@ -70,7 +101,7 @@ def get_risk_distribution(conn) -> pd.DataFrame:
     """).fetchdf()
 
 
-def get_protocol_distribution(conn) -> pd.DataFrame:
+def get_protocol_distribution(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
     """Get asset count by protocol."""
     return conn.execute("""
         SELECT
@@ -82,7 +113,7 @@ def get_protocol_distribution(conn) -> pd.DataFrame:
     """).fetchdf()
 
 
-def get_top_signals(conn, limit: int = 15) -> pd.DataFrame:
+def get_top_signals(conn: duckdb.DuckDBPyConnection, limit: int = 15) -> pd.DataFrame:
     """Get strongest signals."""
     return conn.execute(f"""
         SELECT
@@ -97,7 +128,7 @@ def get_top_signals(conn, limit: int = 15) -> pd.DataFrame:
     """).fetchdf()
 
 
-def get_power_histogram(conn) -> pd.DataFrame:
+def get_power_histogram(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
     """Get power distribution for histogram."""
     return conn.execute("""
         SELECT
@@ -109,23 +140,48 @@ def get_power_histogram(conn) -> pd.DataFrame:
     """).fetchdf()
 
 
-def main():
+def main(data_dir: Path = DATA_DIR) -> None:
     """Main dashboard layout."""
+    st.set_page_config(
+        page_title="RF Asset Discovery Dashboard",
+        page_icon="📡",
+        layout="wide",
+    )
+    st.title("📡 RF Asset Discovery - RF Asset Dashboard")
+
+    found = find_database(data_dir)
+    if found is None:
+        st.error(
+            f"No database found in {data_dir}. Run rfad-scan, or restore "
+            "data/example.duckdb from the repository."
+        )
+        return
+    db_path, is_example = found
+    if is_example:
+        st.info("📊 Using example dataset. Run rfad-scan to collect your own data.")
+
     try:
-        conn = get_connection()
-    except Exception as e:
-        st.error(f"Could not connect to database: {e}")
-        st.info("Make sure data/unified.duckdb exists.")
+        conn = get_connection(str(db_path))
+    except duckdb.Error as e:
+        st.error(f"Could not open {db_path}: {e}")
         return
 
     # Metrics row
     counts = get_layer_counts(conn)
+    if counts is None:
+        st.warning(MISSING_LAYERS_HELP)
+        return
+    if not counts["silver"]:
+        st.info(
+            "No verified (silver) signals yet. Silver needs repeated detections: "
+            "run more survey passes, then `uv run rfad-transform full`."
+        )
 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Bronze Signals", f"{counts['bronze']:,}")
     col2.metric("Silver Verified", f"{counts['silver']:,}")
     col3.metric("Gold Assets", f"{counts['gold']:,}")
-    col4.metric("Promotion Rate", f"{counts['gold'] / counts['silver'] * 100:.1f}%")
+    col4.metric("Promotion Rate", promotion_rate(counts))
 
     st.divider()
 
