@@ -13,7 +13,7 @@ concurrency: { group: "ci-${{ github.ref }}", cancel-in-progress: true } # a new
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -42,7 +42,7 @@ jobs:
   zizmor:
     # security audit of the workflows (config: .github/zizmor.yml). The action runs zizmor's container image by
     # version and digest (its support/versions list); results go to the log, not to code scanning.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
