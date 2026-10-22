@@ -57,6 +57,33 @@ NOTABLE_FREQUENCIES: dict[float, str] = {
     446.0e6: "70cm FM Calling",
 }
 
+# A scan reports a peak at its FFT bin (about 1 kHz wide), not at the channel
+# centre, so a notable frequency matches within half a 25 kHz channel
+NOTABLE_TOLERANCE_HZ: float = 12_500.0
+
+
+def lookup_notable(
+    frequency_hz: float, tolerance_hz: float = NOTABLE_TOLERANCE_HZ
+) -> str:
+    """Name of the notable frequency nearest to frequency_hz, if within tolerance.
+
+    Args:
+        frequency_hz: Measured frequency in Hz, e.g. a scan peak.
+        tolerance_hz: Largest distance from a notable frequency that still matches.
+
+    Returns:
+        The NOTABLE_FREQUENCIES name, or "" if none is within tolerance.
+    """
+    nearest = min(NOTABLE_FREQUENCIES, key=lambda f: abs(f - frequency_hz))
+    if abs(nearest - frequency_hz) <= tolerance_hz:
+        return NOTABLE_FREQUENCIES[nearest]
+    return ""
+
+
+def is_emergency_frequency(frequency_hz: float) -> bool:
+    """Whether frequency_hz matches a notable frequency named as an emergency channel."""
+    return "emergency" in lookup_notable(frequency_hz).lower()
+
 
 class AlertCondition(BaseModel):
     """A single alert condition to monitor.
@@ -437,7 +464,7 @@ def create_watch_for_frequency(
     freq_mhz = frequency_hz / 1e6
 
     # Find notable name if available
-    name = NOTABLE_FREQUENCIES.get(frequency_hz, f"{freq_mhz:.3f}MHz")
+    name = lookup_notable(frequency_hz) or f"{freq_mhz:.3f}MHz"
 
     # Determine band
     bands = []

@@ -12,7 +12,7 @@ import pytest
 
 if TYPE_CHECKING:
     from adws.adw_modules.baseline import SpectrumBaseline
-    from adws.adw_modules.notifier import MultiBackend
+    from adws.adw_modules.notifier import MultiBackend, Notification
     from adws.adw_modules.watch_config import WatchConfig
     from adws.adw_spectrum_watch import SpectrumWatch
     from rf_asset_discovery.apps.scanner import ScanResult
@@ -691,6 +691,89 @@ class TestSignalLoss:
         assert len(alerts) == 1
         assert alerts[0].condition.condition_type == "signal_loss"
         assert "101.9" in alerts[0].message
+
+
+class _CaptureBackend:
+    """A notification backend that records what it is sent."""
+
+    def __init__(self) -> None:
+        self.sent: list[Notification] = []
+
+    async def send(self, notification: Notification) -> bool:
+        self.sent.append(notification)
+        return True
+
+    async def close(self) -> None:
+        pass
+
+
+class TestNotableFrequencies:
+    """Test notable-frequency matching of measured peaks."""
+
+    def test_lookup_matches_within_tolerance(self) -> None:
+        """Test a peak a bin or two off the channel still matches."""
+        from adws.adw_modules.watch_config import lookup_notable
+
+        assert lookup_notable(121.5e6) == "Aircraft Emergency"
+        assert lookup_notable(121.498e6) == "Aircraft Emergency"
+        assert lookup_notable(121.5021e6) == "Aircraft Emergency"
+        assert lookup_notable(156.799e6) == "Marine Channel 16 (Distress)"
+
+    def test_lookup_rejects_neighbouring_channels(self) -> None:
+        """Test the next 25 kHz channel does not match."""
+        from adws.adw_modules.watch_config import lookup_notable
+
+        assert lookup_notable(121.475e6) == ""
+        assert lookup_notable(121.525e6) == ""
+        assert lookup_notable(100.0e6) == ""
+
+    @pytest.mark.asyncio
+    async def test_alert_near_121_5_is_urgent(self, tmp_path: Path) -> None:
+        """Test a new signal measured at 121.498 MHz goes out URGENT for 121.5 MHz."""
+        from adws.adw_modules.notifier import MultiBackend, NotificationPriority
+        from adws.adw_modules.watch_config import AlertCondition, WatchConfig
+
+        capture = _CaptureBackend()
+        config = WatchConfig(
+            name="air",
+            custom_range=(118e6, 137e6),
+            baseline_scans=1,
+            alert_conditions=[AlertCondition(condition_type="new_signal")],
+        )
+        watch = _make_watch(tmp_path, config, notifier=MultiBackend([capture]))
+        await watch._process_baseline_scan(_fm_scan(125.0e6, start_hz=118e6, end_hz=137e6))
+
+        alerts = await watch._check_alerts(
+            _fm_scan(125.0e6, 121.498e6, start_hz=118e6, end_hz=137e6)
+        )
+        assert len(alerts) == 1
+        assert "Aircraft Emergency" in alerts[0].message
+        capture.sent.clear()  # drop the "Baseline Established" notice
+        await watch._send_alert(alerts[0])
+
+        assert [n.priority for n in capture.sent] == [NotificationPriority.URGENT]
+
+    @pytest.mark.asyncio
+    async def test_alert_off_notable_frequencies_is_high(self, tmp_path: Path) -> None:
+        """Test an ordinary new signal stays at HIGH priority."""
+        from adws.adw_modules.notifier import MultiBackend, NotificationPriority
+        from adws.adw_modules.watch_config import Alert, AlertCondition, WatchConfig
+
+        capture = _CaptureBackend()
+        config = WatchConfig(name="air", custom_range=(118e6, 137e6))
+        watch = _make_watch(tmp_path, config, notifier=MultiBackend([capture]))
+
+        await watch._send_alert(
+            Alert(
+                watch_id=config.watch_id,
+                condition=AlertCondition(condition_type="new_signal"),
+                frequency_hz=125.0e6,
+                power_db=-20,
+                message="New signal at 125.000 MHz",
+            )
+        )
+
+        assert [n.priority for n in capture.sent] == [NotificationPriority.HIGH]
 
 
 class TestWatchNotifierSetup:

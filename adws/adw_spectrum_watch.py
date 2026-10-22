@@ -30,7 +30,6 @@ from .adw_modules.notifier import (
 from .adw_modules.observability import AuditLogger
 from .adw_modules.watch_config import (
     BAND_RANGES,
-    NOTABLE_FREQUENCIES,
     Alert,
     AlertCondition,
     FrequencyBand,
@@ -38,6 +37,8 @@ from .adw_modules.watch_config import (
     WatchState,
     create_watch_for_band,
     create_watch_for_frequency,
+    is_emergency_frequency,
+    lookup_notable,
     parse_natural_language,
 )
 
@@ -431,9 +432,7 @@ class SpectrumWatch:
             # Check if new
             if self.baseline.is_new_signal(peak):
                 freq_mhz = peak.frequency_hz / 1e6
-                notable = NOTABLE_FREQUENCIES.get(
-                    round(peak.frequency_hz, -3), ""
-                )
+                notable = lookup_notable(peak.frequency_hz)
 
                 message = f"New signal at {freq_mhz:.3f} MHz ({peak.power_db:.1f} dB)"
                 if notable:
@@ -522,7 +521,7 @@ class SpectrumWatch:
                     continue
 
             freq_mhz = freq_hz / 1e6
-            notable = NOTABLE_FREQUENCIES.get(round(freq_hz, -3), "")
+            notable = lookup_notable(freq_hz)
 
             message = f"Signal lost at {freq_mhz:.3f} MHz (was {last_power:.1f} dB)"
             if notable:
@@ -552,10 +551,10 @@ class SpectrumWatch:
 
         # Determine priority based on condition and frequency
         priority = NotificationPriority.HIGH
-        if alert.frequency_hz in NOTABLE_FREQUENCIES:
-            # Emergency frequencies get urgent priority
-            if "emergency" in NOTABLE_FREQUENCIES[alert.frequency_hz].lower():
-                priority = NotificationPriority.URGENT
+        # Emergency frequencies get urgent priority; a measured peak is never
+        # exactly on the channel, so match within a tolerance
+        if is_emergency_frequency(alert.frequency_hz):
+            priority = NotificationPriority.URGENT
 
         # Build notification
         freq_mhz = alert.frequency_hz / 1e6
