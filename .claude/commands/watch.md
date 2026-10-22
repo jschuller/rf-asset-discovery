@@ -32,9 +32,11 @@ uv run rfad-watch --freq 121.5
 - `signal_loss` - Expected signal missing
 - `band_activity` - Activity level change
 
-Each scanned range keeps its own baseline: a multi-band watch starts alerting
-only after every range has had its baseline scans (`--baseline-scans`, default 12),
-and each range is compared only with its own history.
+Each scanned range keeps its own baseline (`--baseline-scans` scans, default 12)
+and is compared only with its own history. A range starts alerting as soon as its
+own baseline is complete, while other ranges may still be baselining. A range whose
+scans fail 5 times in a row (for example one outside the RTL-SDR's 24-1766 MHz) is
+reported once and no longer scanned.
 
 ## Environment
 ```bash
