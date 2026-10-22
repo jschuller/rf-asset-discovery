@@ -916,46 +916,103 @@ class TestRangeBaselines:
         assert watch.baseline.is_failed(0.5e6, 1.7e6)
         assert watch.baseline.established is True
         am_scans = [r for r in scans if r == (0.5e6, 1.7e6)]
-        assert len(am_scans) == 1  # a FrequencyError fails the range at once, for good
+        assert am_scans == []  # outside 24-1766 MHz: failed at start, never scanned
         failed = [n for n in capture.sent if n.title == "Watch Range Failed"]
         assert len(failed) == 1
         assert "0.500-1.700 MHz" in failed[0].message
         assert any(n.title == "Baseline Established" for n in capture.sent)
 
     def test_scan_errors_must_be_consecutive_to_suspend_a_range(self) -> None:
-        """Test a good scan resets the error count, and a suspended range is retried."""
+        """Test a good scan resets the error count; recovery needs recovery_scans good scans."""
         from adws.adw_modules.baseline import RangeBaselines
 
         baselines = RangeBaselines(
-            ranges=[FM_RANGE], max_consecutive_errors=3, retry_every_cycles=3
+            ranges=[FM_RANGE], max_consecutive_errors=3, retry_every_cycles=3, recovery_scans=2
         )
         assert baselines.record_scan_error(*FM_RANGE) is None
         assert baselines.record_scan_error(*FM_RANGE) is None
-        assert baselines.record_scan_success(*FM_RANGE) is False  # was not suspended
+        assert baselines.record_scan_success(*FM_RANGE) is None  # was not suspended
         assert baselines.record_scan_error(*FM_RANGE) is None
         assert baselines.record_scan_error(*FM_RANGE) is None
         assert baselines.record_scan_error(*FM_RANGE) == "suspended"  # third in a row
         assert baselines.active_ranges == []
         assert baselines.established is False
 
-        assert [baselines.should_scan(*FM_RANGE) for _ in range(6)] == [
-            False, False, True, False, False, True,
-        ]
-        assert baselines.record_scan_error(*FM_RANGE) is None  # a failed retry is not re-reported
-        assert baselines.record_scan_success(*FM_RANGE) is True  # recovered
-        assert baselines.active_ranges == [FM_RANGE]
-        assert baselines.should_scan(*FM_RANGE) is True
+        assert [baselines.should_scan(*FM_RANGE) for _ in range(3)] == [False, False, True]
+        assert baselines.record_scan_success(*FM_RANGE) is None  # 1 of 2 good scans
+        assert baselines.active_ranges == [FM_RANGE]  # scanned every cycle again
+        assert baselines.record_scan_success(*FM_RANGE) == "recovered"
+        assert baselines.record_scan_success(*FM_RANGE) is None  # reported once
 
-    def test_frequency_error_fails_a_range_for_good(self) -> None:
-        """Test a permanent error fails the range at once and it is never retried."""
+    def test_relapses_double_the_retry_wait_up_to_the_cap(self) -> None:
+        """Test each failed retry or relapse doubles the wait, and recovery resets it."""
         from adws.adw_modules.baseline import RangeBaselines
 
-        baselines = RangeBaselines(ranges=[FM_RANGE, AIR_RANGE])
-        assert baselines.record_scan_error(*FM_RANGE, permanent=True) == "failed"
-        assert baselines.record_scan_error(*FM_RANGE, permanent=True) is None
-        assert baselines.is_failed(*FM_RANGE)
-        assert not any(baselines.should_scan(*FM_RANGE) for _ in range(50))
-        assert baselines.active_ranges == [AIR_RANGE]
+        baselines = RangeBaselines(
+            ranges=[FM_RANGE],
+            max_consecutive_errors=1,
+            retry_every_cycles=2,
+            max_retry_cycles=8,
+            recovery_scans=2,
+        )
+
+        def wait_cycles() -> int:
+            n = 1
+            while not baselines.should_scan(*FM_RANGE):
+                n += 1
+            return n
+
+        assert baselines.record_scan_error(*FM_RANGE) == "suspended"
+        waits = []
+        for _ in range(4):  # retry fails each time
+            waits.append(wait_cycles())
+            assert baselines.record_scan_error(*FM_RANGE) is None
+        waits.append(wait_cycles())
+        assert waits == [2, 4, 8, 8, 8]
+
+        assert baselines.record_scan_success(*FM_RANGE) is None
+        assert baselines.record_scan_error(*FM_RANGE) is None  # relapse before recovering
+        assert wait_cycles() == 8
+        assert baselines.record_scan_success(*FM_RANGE) is None
+        assert baselines.record_scan_success(*FM_RANGE) == "recovered"
+        assert baselines.record_scan_error(*FM_RANGE) == "suspended"  # a new, reported suspension
+        assert wait_cycles() == 2  # back to the base wait
+
+    def test_only_ranges_outside_the_tuning_range_fail_for_good(self) -> None:
+        """Test fail_untunable fails ranges by frequency, once, and they are never scanned."""
+        from adws.adw_modules.baseline import RangeBaselines
+
+        am = (0.5e6, 1.7e6)
+        straddling = (20e6, 30e6)
+        baselines = RangeBaselines(ranges=[am, straddling, FM_RANGE])
+        assert baselines.fail_untunable(24e6, 1766e6) == [am, straddling]
+        assert baselines.fail_untunable(24e6, 1766e6) == []
+        assert not any(baselines.should_scan(*am) for _ in range(50))
+        assert baselines.active_ranges == [FM_RANGE]
+
+    @pytest.mark.asyncio
+    async def test_frequency_error_mid_sweep_only_suspends_an_in_range_watch(
+        self, tmp_path: Path
+    ) -> None:
+        """Test a libusb FrequencyError while re-tuning FM suspends it, never fails it."""
+        from adws.adw_modules.notifier import MultiBackend
+        from adws.adw_modules.watch_config import WatchConfig
+        from rf_asset_discovery.core.exceptions import FrequencyError
+
+        config = WatchConfig(name="fm", custom_range=FM_RANGE)
+        watch = _make_watch(tmp_path, config, notifier=MultiBackend([_CaptureBackend()]))
+        watch.state.status = "baseline"
+        error = FrequencyError(95.3e6, "LIBUSB_ERROR_NO_DEVICE")
+
+        for _ in range(watch.baseline.max_consecutive_errors):
+            await watch._handle_scan_error(*FM_RANGE, error)
+
+        assert watch.baseline.is_suspended(*FM_RANGE)
+        assert not watch.baseline.is_failed(*FM_RANGE)
+        assert watch.state.status == "error"
+        await watch.pause()
+        await watch.resume()
+        assert watch.state.status == "error"  # nothing to scan yet
 
     @pytest.mark.asyncio
     async def test_transient_errors_suspend_then_recover(self, tmp_path: Path) -> None:
@@ -982,7 +1039,7 @@ class TestRangeBaselines:
         watch.scanner = GlitchyScanner()  # type: ignore[assignment]
         await watch.start()
         for _ in range(500):
-            if watch.state.status == "watching":
+            if any(n.title == "Watch Range Recovered" for n in capture.sent):
                 break
             await asyncio.sleep(0.01)
         await watch.stop()
@@ -997,20 +1054,27 @@ class TestRangeBaselines:
 
     @pytest.mark.asyncio
     async def test_status_is_error_when_no_range_is_left(self, tmp_path: Path) -> None:
-        """Test the watch says so when every range has failed."""
+        """Test a watch whose only range cannot be tuned fails it at start and says so."""
         from adws.adw_modules.notifier import MultiBackend
         from adws.adw_modules.watch_config import WatchConfig
-        from rf_asset_discovery.core.exceptions import FrequencyError
 
-        config = WatchConfig(name="fm", custom_range=FM_RANGE)
-        watch = _make_watch(tmp_path, config, notifier=MultiBackend([_CaptureBackend()]))
-        watch.state.status = "baseline"
+        config = WatchConfig(name="am", custom_range=(0.5e6, 1.7e6), scan_interval_seconds=0)
+        capture = _CaptureBackend()
+        watch = _make_watch(tmp_path, config, notifier=MultiBackend([capture]))
 
-        await watch._handle_scan_error(*FM_RANGE, FrequencyError(FM_RANGE[0], "bad"))
+        class NoScanner:
+            def scan(self, start_hz: float, end_hz: float, dwell_time_ms: float) -> ScanResult:
+                raise AssertionError("an untunable range must not be scanned")
+
+        watch.scanner = NoScanner()  # type: ignore[assignment]
+        await watch.start()
+        await asyncio.sleep(0.02)
 
         assert watch.state.status == "error"
         assert watch.state.error is not None
         assert watch.get_status()["status"] == "error"
+        assert [n.title for n in capture.sent].count("Watch Range Failed") == 1
+        await watch.stop()
 
     @pytest.mark.asyncio
     async def test_restored_established_watch_goes_back_to_watching(
@@ -1147,6 +1211,49 @@ class TestRangeBaselines:
         assert loaded.baseline.established is False
         assert loaded.state.baseline_established is False
         assert loaded.get_status()["baseline_established"] is False
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "pattern",
+        [[False] * 5 + [True], [True] * 3 + [False] * 5],  # True = good scan, repeating
+        ids=["fails-5-of-6", "3-good-5-bad"],
+    )
+    async def test_flapping_range_sends_a_bounded_number_of_notices(
+        self, tmp_path: Path, pattern: list[bool]
+    ) -> None:
+        """Test a range that keeps failing and coming back does not flood notifications."""
+        from adws.adw_modules.notifier import MultiBackend
+        from adws.adw_modules.watch_config import WatchConfig
+        from rf_asset_discovery.core.exceptions import USBError
+
+        config = WatchConfig(
+            name="fm", custom_range=FM_RANGE, baseline_scans=2, scan_interval_seconds=0
+        )
+        capture = _CaptureBackend()
+        watch = _make_watch(tmp_path, config, notifier=MultiBackend([capture]))
+        watch.baseline.retry_every_cycles = 1
+        calls = 0
+
+        class FlappingScanner:
+            def scan(self, start_hz: float, end_hz: float, dwell_time_ms: float) -> ScanResult:
+                nonlocal calls
+                calls += 1
+                if not pattern[(calls - 1) % len(pattern)]:
+                    raise USBError(-1, "LIBUSB_ERROR_PIPE")
+                return _scan((start_hz, end_hz), (101.9e6, -20))
+
+        watch.scanner = FlappingScanner()  # type: ignore[assignment]
+        await watch.start()
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + 3
+        while calls < 150 and loop.time() < deadline:
+            await asyncio.sleep(0.001)
+        await watch.stop()
+
+        assert calls >= 40  # many relapses and recoveries, each a chance to notify
+        titles = [n.title for n in capture.sent]
+        health = [t for t in titles if t in ("Watch Range Suspended", "Watch Range Recovered")]
+        assert 1 <= len(health) <= 2  # one suspended/recovered pair per range per hour
 
 
 class _CaptureBackend:

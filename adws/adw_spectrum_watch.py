@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from rf_asset_discovery.apps.scanner import ScanResult, SpectrumScanner
-from rf_asset_discovery.core.exceptions import FrequencyError
+from rf_asset_discovery.apps.survey.band_catalog import RTL_SDR_MAX_HZ, RTL_SDR_MIN_HZ
 
 from .adw_modules.baseline import RangeBaselines
 from .adw_modules.notifier import (
@@ -130,6 +130,10 @@ class SpectrumWatch:
         self._task: asyncio.Task[None] | None = None
         self._alert_cooldowns: dict[str, datetime] = {}
         self._alert_history: list[Alert] = []
+        # Range health notifications: at most one suspended/recovered pair per
+        # range per hour; later pairs go to the log and audit only
+        self._suspend_notified_at: dict[tuple[float, float], datetime] = {}
+        self._quiet_recovery: set[tuple[float, float]] = set()
 
     async def start(self) -> None:
         """Start the spectrum watch.
@@ -167,6 +171,16 @@ class SpectrumWatch:
                 tags=["sdr", "watch", "start"],
             )
         )
+
+        # A range the radio cannot tune is known from its frequencies, not from errors
+        for start_hz, end_hz in self.baseline.fail_untunable(RTL_SDR_MIN_HZ, RTL_SDR_MAX_HZ):
+            await self._range_event(
+                start_hz, end_hz, "failed",
+                f"is outside the RTL-SDR's {RTL_SDR_MIN_HZ / 1e6:.0f}-"
+                f"{RTL_SDR_MAX_HZ / 1e6:.0f} MHz tuning range; not scanning it",
+                None,
+            )
+        await self._after_range_change()
 
         # A watch restored with every range's baseline goes straight to watching
         await self._update_phase()
@@ -232,7 +246,9 @@ class SpectrumWatch:
     async def resume(self) -> None:
         """Resume a paused watch."""
         if self.state.status == "paused":
-            if self.baseline.established:
+            if not self.baseline.active_ranges:
+                self.state.status = "error"
+            elif self.baseline.established:
                 self.state.status = "watching"
             else:
                 self.state.status = "baseline"
@@ -268,10 +284,13 @@ class SpectrumWatch:
                         await self._handle_scan_error(start_hz, end_hz, e)
                         continue
 
-                    if self.baseline.record_scan_success(start_hz, end_hz):
+                    was_active = (start_hz, end_hz) in self.baseline.active_ranges
+                    if self.baseline.record_scan_success(start_hz, end_hz) == "recovered":
                         await self._range_event(
-                            start_hz, end_hz, "recovered", "scans again", None
+                            start_hz, end_hz, "recovered",
+                            f"scanned {self.baseline.recovery_scans} times in a row again", None,
                         )
+                    if not was_active:
                         await self._after_range_change()
                     try:
                         for alert in await self._process_scan(result):
@@ -355,6 +374,16 @@ class SpectrumWatch:
                 "error": str(error) if error else None,
             },
         )
+        key = (float(start_hz), float(end_hz))
+        if event == "suspended":
+            last = self._suspend_notified_at.get(key)
+            if last is not None and (datetime.now() - last).total_seconds() < 3600:
+                self._quiet_recovery.add(key)
+                return
+            self._suspend_notified_at[key] = datetime.now()
+        elif event == "recovered" and key in self._quiet_recovery:
+            self._quiet_recovery.discard(key)
+            return
         await self.notifier.send(
             Notification(
                 title=f"Watch Range {event.title()}",
@@ -369,31 +398,29 @@ class SpectrumWatch:
         )
 
     async def _handle_scan_error(self, start_hz: float, end_hz: float, error: Exception) -> None:
-        """Count a scan error; fail, suspend or keep the range, and report changes once."""
-        permanent = isinstance(error, FrequencyError)
-        event = self.baseline.record_scan_error(start_hz, end_hz, permanent=permanent)
-        if event == "failed":
-            await self._range_event(
-                start_hz, end_hz, "failed",
-                f"cannot be tuned ({error}); no longer scanning it", error,
-            )
-        elif event == "suspended":
+        """Count a scan error (always transient at runtime) and report a new suspension once.
+
+        A FrequencyError while scanning is not proof the range cannot be tuned:
+        SDRDevice raises it for any failure while re-tuning, libusb errors
+        included. Untunable ranges are failed at start instead (start()).
+        """
+        if self.baseline.record_scan_error(start_hz, end_hz) == "suspended":
             await self._range_event(
                 start_hz, end_hz, "suspended",
                 f"failed {self.baseline.max_consecutive_errors} scans in a row ({error}); "
-                f"retrying every {self.baseline.retry_every_cycles} cycles",
+                f"retrying after {self.baseline.retry_every_cycles} cycles, backing off "
+                f"to every {self.baseline.max_retry_cycles} if it keeps failing",
                 error,
             )
-        if event:
-            await self._after_range_change()
+        await self._after_range_change()
 
     async def _after_range_change(self) -> None:
-        """Re-derive the watch's status after a range failed, was suspended or recovered."""
+        """Re-derive the watch's status after a range failed, was suspended or came back."""
         if not self.baseline.active_ranges:
-            if self.state.status not in ("paused", "stopped"):
+            if self.state.status not in ("paused", "stopped", "error"):
                 self.state.status = "error"
-            self.state.error = "No frequency range can be scanned; nothing left to watch"
-            logger.error(self.state.error)
+                self.state.error = "No frequency range can be scanned; nothing left to watch"
+                logger.error(self.state.error)
             return
         if self.state.status == "error":
             self.state.status = "watching" if self.baseline.established else "baseline"
