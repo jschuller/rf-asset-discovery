@@ -7,6 +7,12 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 # =============================================================================
+# Tuning Range (R820T/R820T2 tuner)
+# =============================================================================
+RTL_SDR_MIN_HZ: float = 24e6  # 24 MHz minimum
+RTL_SDR_MAX_HZ: float = 1766e6  # 1766 MHz maximum
+
+# =============================================================================
 # Sample Rates
 # =============================================================================
 DEFAULT_SAMPLE_RATE: float = 2.048e6  # 2.048 MHz - common default

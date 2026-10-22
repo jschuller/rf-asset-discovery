@@ -9,6 +9,7 @@ RTL-SDR (R820T tuner) coverage: ~24 MHz to ~1766 MHz
 
 from __future__ import annotations
 
+from rf_asset_discovery.core.config import RTL_SDR_MAX_HZ, RTL_SDR_MIN_HZ
 from rf_asset_discovery.storage.survey_models import (
     BandDefinition,
     SegmentPriority,
@@ -19,8 +20,8 @@ from rf_asset_discovery.storage.survey_models import (
 # RTL-SDR Frequency Limits
 # ============================================================================
 
-RTL_SDR_MIN_HZ = 24e6  # 24 MHz minimum
-RTL_SDR_MAX_HZ = 1766e6  # 1766 MHz maximum
+# RTL_SDR_MIN_HZ / RTL_SDR_MAX_HZ live in core.config, so the watch can use them without the storage
+# extra; they are imported above and stay importable from here.
 
 # ============================================================================
 # Priority Bands - Known Active Frequencies

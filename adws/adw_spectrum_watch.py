@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from rf_asset_discovery.apps.scanner import ScanResult, SpectrumScanner
-from rf_asset_discovery.apps.survey.band_catalog import RTL_SDR_MAX_HZ, RTL_SDR_MIN_HZ
+from rf_asset_discovery.core.config import RTL_SDR_MAX_HZ, RTL_SDR_MIN_HZ
 
 from .adw_modules.baseline import RangeBaselines
 from .adw_modules.notifier import (
