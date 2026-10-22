@@ -325,8 +325,8 @@ def scanner() -> None:
     from datetime import datetime
     from pathlib import Path
 
-    from rf_asset_discovery.storage import UnifiedDB
     from rf_asset_discovery.apps.survey.manager import SurveyManager
+    from rf_asset_discovery.storage import UnifiedDB
 
     db_path = Path(args.db)
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -520,8 +520,8 @@ def recorder() -> None:
     from datetime import datetime
     from pathlib import Path
 
-    from rf_asset_discovery.storage import UnifiedDB
     from rf_asset_discovery.apps.survey.manager import SurveyManager
+    from rf_asset_discovery.storage import UnifiedDB
 
     db_path = Path(args.db)
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -939,15 +939,14 @@ def spectrum_watch() -> None:
     try:
         import asyncio
 
-        from adws.adw_spectrum_watch import SpectrumWatch, run_watch_cli
         from adws.adw_modules.watch_config import (
             FrequencyBand,
             WatchConfig,
-            AlertCondition,
             create_watch_for_band,
             create_watch_for_frequency,
             parse_natural_language,
         )
+        from adws.adw_spectrum_watch import run_watch_cli
     except ImportError as e:
         print(
             f"Error: Watch modules not available: {e}\n"
@@ -1174,13 +1173,13 @@ def spectrum_survey() -> None:
         import json as json_module
         from pathlib import Path
 
-        from rf_asset_discovery.storage import UnifiedDB
-        from rf_asset_discovery.apps.survey.manager import SurveyManager
-        from rf_asset_discovery.apps.survey.executor import SurveyExecutor
         from rf_asset_discovery.apps.survey.band_catalog import (
             estimate_survey_duration,
             format_duration,
         )
+        from rf_asset_discovery.apps.survey.executor import SurveyExecutor
+        from rf_asset_discovery.apps.survey.manager import SurveyManager
+        from rf_asset_discovery.storage import UnifiedDB
     except ImportError as e:
         print(f"Error: Survey modules not available: {e}", file=sys.stderr)
         sys.exit(1)
@@ -1290,7 +1289,8 @@ def spectrum_survey() -> None:
                         sys.exit(1)
 
                     if args.json:
-                        print(json_module.dumps(manager.get_ralph_state(args.survey_id), indent=2, default=str))
+                        state = manager.get_ralph_state(args.survey_id)
+                        print(json_module.dumps(state, indent=2, default=str))
                     else:
                         segments = manager.get_segments(survey.survey_id)
                         pending = [s for s in segments if s.status.value == "pending"]
@@ -1299,7 +1299,10 @@ def spectrum_survey() -> None:
                         print(f"Survey: {survey.name}")
                         print(f"  ID: {survey.survey_id}")
                         print(f"  Status: {survey.status.value}")
-                        print(f"  Progress: {survey.completed_segments}/{survey.total_segments} ({survey.completion_pct:.1f}%)")
+                        print(
+                            f"  Progress: {survey.completed_segments}/{survey.total_segments} "
+                            f"({survey.completion_pct:.1f}%)"
+                        )
                         print(f"  Signals: {survey.total_signals_found}")
                         print(f"  Remaining: {format_duration(est_remaining)}")
                 else:
@@ -1311,7 +1314,10 @@ def spectrum_survey() -> None:
                         print(f"{'ID':<36} {'Name':<25} {'Status':<12} {'Progress'}")
                         print("-" * 90)
                         for s in surveys:
-                            print(f"{s.survey_id} {s.name:<25} {s.status.value:<12} {s.completion_pct:.1f}%")
+                            print(
+                                f"{s.survey_id} {s.name:<25} {s.status.value:<12} "
+                                f"{s.completion_pct:.1f}%"
+                            )
 
             elif args.command == "list":
                 if args.location:
@@ -1325,12 +1331,18 @@ def spectrum_survey() -> None:
                     print(f"No surveys found{' at ' + args.location if args.location else ''}")
                 else:
                     print(f"\n{header}")
-                    print(f"{'ID':<36} {'Name':<20} {'Location':<15} {'Run':<4} {'Status':<12} {'Progress'}")
+                    print(
+                        f"{'ID':<36} {'Name':<20} {'Location':<15} {'Run':<4} "
+                        f"{'Status':<12} {'Progress'}"
+                    )
                     print("-" * 105)
                     for s in surveys:
                         loc = (s.location_name or "-")[:14]
                         run = str(s.run_number) if s.run_number else "-"
-                        print(f"{s.survey_id} {s.name:<20} {loc:<15} {run:<4} {s.status.value:<12} {s.completion_pct:.1f}%")
+                        print(
+                            f"{s.survey_id} {s.name:<20} {loc:<15} {run:<4} "
+                            f"{s.status.value:<12} {s.completion_pct:.1f}%"
+                        )
 
     except KeyboardInterrupt:
         print("\nCancelled")
@@ -1458,6 +1470,7 @@ def medallion_transform() -> None:
     # Import transform module
     try:
         from pathlib import Path
+
         from rf_asset_discovery.apps.transform import MedallionTransformer
     except ImportError as e:
         print(f"Error: Transform module not available: {e}", file=sys.stderr)
@@ -1494,7 +1507,10 @@ def medallion_transform() -> None:
                 print("\nMigration Results:")
                 for r in results:
                     status = "✓" if r.success else "✗"
-                    print(f"  {status} {r.table}: {r.rows_created:,} rows ({r.duration_seconds:.1f}s)")
+                    print(
+                        f"  {status} {r.table}: {r.rows_created:,} rows "
+                        f"({r.duration_seconds:.1f}s)"
+                    )
                     if r.error:
                         print(f"      Error: {r.error}")
 

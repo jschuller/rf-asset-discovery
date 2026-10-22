@@ -11,6 +11,7 @@ Provides continuous spectrum monitoring with:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import signal
@@ -18,7 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from rf_asset_discovery.apps.scanner import ScanResult, SignalPeak, SpectrumScanner
+from rf_asset_discovery.apps.scanner import ScanResult, SpectrumScanner
 
 from .adw_modules.baseline import RangeBaselines
 from .adw_modules.notifier import (
@@ -29,7 +30,6 @@ from .adw_modules.notifier import (
 )
 from .adw_modules.observability import AuditLogger
 from .adw_modules.watch_config import (
-    BAND_RANGES,
     Alert,
     AlertCondition,
     FrequencyBand,
@@ -180,10 +180,8 @@ class SpectrumWatch:
 
         if self._task:
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
             self._task = None
 
         # Save state
@@ -428,12 +426,12 @@ class SpectrumWatch:
                 continue
 
             # Check if monitoring specific frequency
-            if condition.frequency_hz is not None:
-                if (
-                    abs(peak.frequency_hz - condition.frequency_hz)
-                    > condition.frequency_tolerance_hz
-                ):
-                    continue
+            if (
+                condition.frequency_hz is not None
+                and abs(peak.frequency_hz - condition.frequency_hz)
+                > condition.frequency_tolerance_hz
+            ):
+                continue
 
             # Check if new
             if baseline.is_new_signal(peak):
@@ -521,12 +519,12 @@ class SpectrumWatch:
 
         for freq_hz, last_power in missing:
             # Check if monitoring specific frequency
-            if condition.frequency_hz is not None:
-                if (
-                    abs(freq_hz - condition.frequency_hz)
-                    > condition.frequency_tolerance_hz
-                ):
-                    continue
+            if (
+                condition.frequency_hz is not None
+                and abs(freq_hz - condition.frequency_hz)
+                > condition.frequency_tolerance_hz
+            ):
+                continue
 
             freq_mhz = freq_hz / 1e6
             notable = lookup_notable(freq_hz)
@@ -843,7 +841,7 @@ async def run_watch_cli(
 
     # Print summary
     status = watch.get_status()
-    print(f"\nWatch Summary:")
+    print("\nWatch Summary:")
     print(f"  Scans: {status['scans_completed']}")
     print(f"  Alerts: {status['alerts_sent']}")
     print(f"  Uptime: {status['uptime_seconds']:.0f} seconds")

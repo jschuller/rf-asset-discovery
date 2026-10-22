@@ -422,7 +422,9 @@ class UnifiedDB:
 
         return [self._row_to_signal(row) for row in results]
 
-    def update_signal_state(self, signal_id: str, state: SignalState, notes: str | None = None) -> None:
+    def update_signal_state(
+        self, signal_id: str, state: SignalState, notes: str | None = None
+    ) -> None:
         """Update signal lifecycle state.
 
         Args:

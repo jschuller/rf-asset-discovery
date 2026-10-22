@@ -8,30 +8,29 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-import socket
-
-from rf_asset_discovery.storage.survey_models import (
-    SegmentStatus,
-    SpectrumSurvey,
-    SurveySegment,
-    SurveyStatus,
+from rf_asset_discovery.apps.survey.band_catalog import (
+    RTL_SDR_MAX_HZ,
+    RTL_SDR_MIN_HZ,
+    estimate_survey_duration,
+    format_duration,
+    generate_full_survey_segments,
+    generate_priority_only_segments,
 )
 from rf_asset_discovery.storage.models import (
     Signal,
     SignalState,
     derive_freq_band,
 )
-from rf_asset_discovery.apps.survey.band_catalog import (
-    RTL_SDR_MIN_HZ,
-    RTL_SDR_MAX_HZ,
-    generate_full_survey_segments,
-    generate_priority_only_segments,
-    estimate_survey_duration,
-    format_duration,
+from rf_asset_discovery.storage.survey_models import (
+    SegmentStatus,
+    SpectrumSurvey,
+    SurveySegment,
+    SurveyStatus,
 )
 
 if TYPE_CHECKING:
@@ -103,7 +102,8 @@ class SurveyManager:
         run_number = None
         if location_name:
             result = self.db.conn.execute(
-                "SELECT COALESCE(MAX(run_number), 0) + 1 FROM spectrum_surveys WHERE location_name = ?",
+                "SELECT COALESCE(MAX(run_number), 0) + 1 FROM spectrum_surveys "
+                "WHERE location_name = ?",
                 [location_name],
             ).fetchone()
             run_number = result[0]
@@ -340,8 +340,6 @@ class SurveyManager:
             status: New status.
         """
         now = datetime.now()
-
-        updates = {"status": status.value, "last_activity_at": now}
 
         if status == SurveyStatus.IN_PROGRESS:
             self.db.conn.execute(
@@ -848,12 +846,14 @@ class SurveyManager:
 
         # Parse JSON fields
         if data.get("config"):
-            data["config"] = json.loads(data["config"]) if isinstance(data["config"], str) else data["config"]
+            if isinstance(data["config"], str):
+                data["config"] = json.loads(data["config"])
         else:
             data["config"] = {}
 
         if data.get("results_summary"):
-            data["results_summary"] = json.loads(data["results_summary"]) if isinstance(data["results_summary"], str) else data["results_summary"]
+            if isinstance(data["results_summary"], str):
+                data["results_summary"] = json.loads(data["results_summary"])
         else:
             data["results_summary"] = {}
 
@@ -877,6 +877,7 @@ class SurveyManager:
     def _row_to_signal(self, row: tuple[Any, ...]) -> Signal:
         """Convert database row to Signal."""
         from pathlib import Path
+
         from rf_asset_discovery.storage.models import RFProtocol
 
         columns = [desc[0] for desc in self.db.conn.description]

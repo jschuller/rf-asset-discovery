@@ -277,10 +277,7 @@ class StreamRecorder:
         self._samples.append(samples.copy())
         self._total_samples += len(samples)
 
-        if self.max_samples is not None and self._total_samples >= self.max_samples:
-            return False
-
-        return True
+        return self.max_samples is None or self._total_samples < self.max_samples
 
     def save(self) -> SigMFRecording:
         """Save recorded samples to file.

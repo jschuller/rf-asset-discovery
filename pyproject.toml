@@ -79,10 +79,17 @@ exclude = ["tests/"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+# Exploratory notebooks are kept as a record of the analysis, not maintained code
+extend-exclude = ["notebooks"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "UP", "ANN", "B", "C4", "SIM"]
-ignore = ["ANN101", "ANN102"]  # self/cls type annotations
+
+[tool.ruff.lint.flake8-annotations]
+allow-star-arg-any = true  # **kwargs: Any passed through to WatchConfig
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN"]  # test functions and fixtures need no annotations
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

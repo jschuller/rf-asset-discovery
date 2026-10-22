@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
-from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -36,7 +33,10 @@ class TestWatchImports:
             create_notifier,
         )
 
-        assert Notification is not None
+        assert all(
+            callable(obj)
+            for obj in (ConsoleBackend, MultiBackend, Notification, NtfyBackend, create_notifier)
+        )
         assert NotificationPriority.HIGH.value == 4
 
     def test_watch_config_imports(self) -> None:
@@ -52,14 +52,26 @@ class TestWatchImports:
             parse_natural_language,
         )
 
+        assert all(
+            callable(obj)
+            for obj in (
+                Alert,
+                AlertCondition,
+                WatchConfig,
+                WatchState,
+                create_watch_for_band,
+                create_watch_for_frequency,
+                parse_natural_language,
+            )
+        )
         assert FrequencyBand.FM_BROADCAST.value == "fm_broadcast"
         assert FrequencyBand.AIRCRAFT_VHF.value == "aircraft_vhf"
 
     def test_baseline_imports(self) -> None:
         """Test baseline module imports."""
-        from adws.adw_modules.baseline import SignalHistory, SpectrumBaseline
+        from adws.adw_modules.baseline import RangeBaselines, SignalHistory, SpectrumBaseline
 
-        assert SpectrumBaseline is not None
+        assert all(callable(obj) for obj in (RangeBaselines, SignalHistory, SpectrumBaseline))
 
     def test_observability_watch_types(self) -> None:
         """Test observability module watch event types."""
@@ -67,6 +79,7 @@ class TestWatchImports:
 
         assert AuditEventType.WATCH_STARTED.value == "watch_started"
         assert AuditEventType.ALERT_TRIGGERED.value == "alert_triggered"
+        assert callable(is_frequency_legal)
 
 
 # =============================================================================
