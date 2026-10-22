@@ -19,7 +19,7 @@ dependencies = [
 [project.optional-dependencies]
 plot = ["matplotlib>=3.7.0"]
 agent = ["pydantic>=2.0.0"]
-adsb = ["pyModeS>=2.0"]
+adsb = ["pyModeS>=2.0,<3"]  # 3.0 removed the v2 API (pms.crc, pms.adsb) the decoder uses
 ui = ["rich>=13.0"]
 storage = [
     "duckdb>=1.0.0",
