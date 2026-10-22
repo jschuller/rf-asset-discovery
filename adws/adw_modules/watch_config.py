@@ -110,14 +110,17 @@ def find_notable(
 
     Args:
         frequency_hz: Measured frequency in Hz, e.g. a scan peak.
-        tolerance_hz: Largest distance from a channel (or a band's edge) that
-            still matches.
+        tolerance_hz: Largest distance from a single channel that still
+            matches; a band matches only inside its edges.
 
     Returns:
         The matching NotableFrequency, or None.
     """
     nearest = min(NOTABLE_CHANNELS, key=lambda n: n.distance_hz(frequency_hz))
-    if nearest.distance_hz(frequency_hz) <= tolerance_hz:
+    # A band's edges are exact: just outside 406.0-406.1 MHz are radiosondes and
+    # federal land mobile, so only single channels get the measurement tolerance
+    allowed = tolerance_hz if nearest.start_hz == nearest.end_hz else 0.0
+    if nearest.distance_hz(frequency_hz) <= allowed:
         return nearest
     return None
 

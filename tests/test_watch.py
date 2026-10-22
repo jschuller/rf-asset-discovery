@@ -1055,7 +1055,7 @@ class TestNotableFrequencies:
         assert is_emergency_frequency(freq_hz)
         assert lookup_notable(freq_hz) == "Military Aviation Emergency (Guard)"
 
-    @pytest.mark.parametrize("freq_hz", [406.0e6, 406.05e6, 406.1e6, 406.11e6])
+    @pytest.mark.parametrize("freq_hz", [406.0e6, 406.05e6, 406.1e6])
     def test_406_beacon_band_is_an_emergency(self, freq_hz: float) -> None:
         """Test the whole 406.0-406.1 MHz beacon band matches, not just one point."""
         from adws.adw_modules.watch_config import is_emergency_frequency, lookup_notable
@@ -1063,7 +1063,9 @@ class TestNotableFrequencies:
         assert is_emergency_frequency(freq_hz)
         assert lookup_notable(freq_hz) == "COSPAS-SARSAT Distress Beacons"
 
-    @pytest.mark.parametrize("freq_hz", [243.025e6, 242.975e6, 405.98e6, 406.125e6, 121.525e6])
+    @pytest.mark.parametrize(
+        "freq_hz", [243.025e6, 242.975e6, 405.99e6, 406.11e6, 406.1001e6, 121.525e6]
+    )
     def test_near_misses_are_not_emergencies(self, freq_hz: float) -> None:
         """Test the neighbouring channels of emergency frequencies are not urgent."""
         from adws.adw_modules.watch_config import is_emergency_frequency
