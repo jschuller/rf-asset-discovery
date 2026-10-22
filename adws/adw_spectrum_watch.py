@@ -249,23 +249,28 @@ class SpectrumWatch:
                     await asyncio.sleep(self.config.scan_interval_seconds)
                     continue
 
-                # Scan each range
+                # Scan each range; each one baselines, then watches, on its own
                 for start_hz, end_hz in ranges:
                     if not self._running:
                         break
+                    if self.baseline.is_failed(start_hz, end_hz):
+                        continue
 
                     try:
                         result = await self._execute_scan(start_hz, end_hz)
-
-                        if self.state.status == "baseline":
-                            await self._process_baseline_scan(result)
-                        else:
-                            alerts = await self._check_alerts(result)
-                            for alert in alerts:
-                                await self._send_alert(alert)
-
                     except Exception as e:
                         logger.error("Scan error: %s", e)
+                        self.state.error = str(e)
+                        if self.baseline.record_scan_error(start_hz, end_hz):
+                            await self._range_failed(start_hz, end_hz, e)
+                        continue
+
+                    self.baseline.record_scan_success(start_hz, end_hz)
+                    try:
+                        for alert in await self._process_scan(result):
+                            await self._send_alert(alert)
+                    except Exception as e:
+                        logger.error("Scan processing error: %s", e)
                         self.state.error = str(e)
 
                 # Wait for next scan interval
@@ -306,27 +311,87 @@ class SpectrumWatch:
 
         return result
 
+    async def _process_scan(self, result: ScanResult) -> list[Alert]:
+        """Route a scan by its range's phase.
+
+        A range still building its baseline adds the scan to it; a range whose
+        baseline is complete checks alert conditions, whatever the other
+        ranges are doing.
+
+        Args:
+            result: Scan result of one range.
+
+        Returns:
+            Alerts to send (none while the range is baselining).
+        """
+        if self.baseline.is_range_established(result.start_freq_hz, result.end_freq_hz):
+            return await self._check_alerts(result)
+        await self._process_baseline_scan(result)
+        return []
+
+    async def _range_failed(self, start_hz: float, end_hz: float, error: Exception) -> None:
+        """Report, once, a range given up on after repeated scan errors."""
+        message = (
+            f"{start_hz / 1e6:.3f}-{end_hz / 1e6:.3f} MHz failed "
+            f"{self.baseline.max_consecutive_errors} scans in a row ({error}); "
+            "no longer scanning it"
+        )
+        logger.error("Range failed: %s", message)
+        self.audit_logger.log_operation(
+            adw_id=f"watch_{self.config.watch_id}",
+            operation="range_failed",
+            params={"start_hz": start_hz, "end_hz": end_hz, "error": str(error)},
+        )
+        await self.notifier.send(
+            Notification(
+                title="Watch Range Failed",
+                message=message,
+                priority=NotificationPriority.HIGH,
+                tags=["sdr", "watch", "error"],
+            )
+        )
+        if not self.baseline.active_ranges:
+            self.state.error = "Every frequency range failed; nothing left to watch"
+            logger.error(self.state.error)
+            return
+        # The failed range may have been the last one holding back the baseline
+        await self._update_phase()
+
     async def _process_baseline_scan(self, result: ScanResult) -> None:
         """Process a scan during baseline establishment.
 
         Args:
             result: Scan result to add to baseline.
         """
+        range_baseline = self.baseline.for_result(result)
+        was_established = range_baseline.established
         self.baseline.add_scan(result)
         self.state.baseline_scans_completed = self.baseline.scan_count
 
         # Log progress
         logger.info(
             "Baseline scan %d/%d of %.3f-%.3f MHz: %d signals",
-            self.baseline.for_result(result).scan_count,
+            range_baseline.scan_count,
             self.config.baseline_scans,
             result.start_freq_hz / 1e6,
             result.end_freq_hz / 1e6,
             len(result.peaks),
         )
 
-        # Check if baseline is complete
-        if self.baseline.established:
+        if range_baseline.established and not was_established:
+            logger.info(
+                "Baseline of %.3f-%.3f MHz established; watching that range",
+                result.start_freq_hz / 1e6,
+                result.end_freq_hz / 1e6,
+            )
+        await self._update_phase()
+
+    async def _update_phase(self) -> None:
+        """Move the watch to "watching" once every active range has its baseline.
+
+        A paused or stopped watch keeps its status; resume() picks the phase.
+        """
+        if self.state.status in ("idle", "baseline") and self.baseline.established:
             self.state.status = "watching"
             self.state.baseline_established = True
 
@@ -553,6 +618,7 @@ class SpectrumWatch:
         Args:
             alert: The alert to send.
         """
+        previous_status = self.state.status
         self.state.status = "alerting"
 
         # Determine priority based on condition and frequency
@@ -592,8 +658,8 @@ class SpectrumWatch:
         self.state.alerts_sent += 1
         self._alert_history.append(alert)
 
-        # Return to watching
-        self.state.status = "watching"
+        # Back to the phase the watch was in (other ranges may still be baselining)
+        self.state.status = previous_status
 
         logger.warning("ALERT: %s", alert.message)
 
@@ -653,9 +719,9 @@ class SpectrumWatch:
 
             # Restore state
             state_data = data["state"]
-            watch.state.baseline_established = state_data.get(
-                "baseline_established", False
-            )
+            # From the restored baseline, which may have been rebuilt or trimmed
+            watch.state.baseline_established = watch.baseline.established
+            watch.state.baseline_scans_completed = watch.baseline.scan_count
             watch.state.scans_completed = state_data.get("scans_completed", 0)
             watch.state.alerts_sent = state_data.get("alerts_sent", 0)
 

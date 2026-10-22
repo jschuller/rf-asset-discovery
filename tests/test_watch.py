@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -801,10 +803,7 @@ class TestRangeBaselines:
 
         async def feed(result: ScanResult) -> list[Alert]:
             """One pass of the scan loop's per-range step."""
-            if watch.state.status == "baseline":
-                await watch._process_baseline_scan(result)
-                return []
-            return await watch._check_alerts(result)
+            return await watch._process_scan(result)
 
         fm = _scan(FM_RANGE, (101.9e6, -20))
         air = _scan(AIR_RANGE, (125.0e6, -40))
@@ -854,6 +853,164 @@ class TestRangeBaselines:
         assert restored.established is False
         assert set(restored.baselines) == {FM_RANGE, AIR_RANGE}
         assert all(not b.signals for b in restored.baselines.values())
+
+    @pytest.mark.asyncio
+    async def test_established_range_alerts_while_another_still_baselines(
+        self, tmp_path: Path
+    ) -> None:
+        """Test a range with a complete baseline alerts before the others finish."""
+        from adws.adw_modules.watch_config import AlertCondition
+
+        watch = self._two_band_watch(
+            tmp_path,
+            AlertCondition(condition_type="new_signal", cooldown_seconds=0),
+            baseline_scans=2,
+        )
+        fm = _scan(FM_RANGE, (101.9e6, -20))
+        for _ in range(2):
+            assert await watch._process_scan(fm) == []
+        assert watch.baseline.is_range_established(*FM_RANGE)
+        assert watch.state.status == "baseline"  # the aircraft band has no scans yet
+
+        alerts = await watch._process_scan(_scan(FM_RANGE, (101.9e6, -20), (95.5e6, -25)))
+        assert [round(a.frequency_hz) for a in alerts] == [95_500_000]
+        await watch._send_alert(alerts[0])
+        assert watch.state.status == "baseline"  # alerting returns to the phase it was in
+
+    @pytest.mark.asyncio
+    async def test_range_that_always_fails_does_not_block_the_watch(
+        self, tmp_path: Path
+    ) -> None:
+        """Test an untunable range is given up on and the other range goes on to watch."""
+        from adws.adw_modules.baseline import MAX_CONSECUTIVE_SCAN_ERRORS
+        from adws.adw_modules.notifier import MultiBackend
+        from adws.adw_modules.watch_config import parse_natural_language
+
+        config = parse_natural_language("watch AM and FM broadcast")
+        assert (0.5e6, 1.7e6) in config.get_frequency_ranges()  # below the RTL-SDR's 24 MHz
+        config.baseline_scans = 2
+        config.scan_interval_seconds = 0
+        capture = _CaptureBackend()
+        watch = _make_watch(tmp_path, config, notifier=MultiBackend([capture]))
+
+        scans: list[tuple[float, float]] = []
+
+        class FakeScanner:
+            def scan(self, start_hz: float, end_hz: float, dwell_time_ms: float) -> ScanResult:
+                scans.append((start_hz, end_hz))
+                if end_hz < 24e6:
+                    raise RuntimeError("frequency out of range")
+                return _scan((start_hz, end_hz), (101.9e6, -20))
+
+        watch.scanner = FakeScanner()  # type: ignore[assignment]
+        await watch.start()
+        for _ in range(500):
+            if watch.state.status == "watching":
+                break
+            await asyncio.sleep(0.01)
+        await watch.stop()
+
+        assert watch.state.status == "stopped"
+        assert watch.state.baseline_established is True
+        assert watch.baseline.is_failed(0.5e6, 1.7e6)
+        assert watch.baseline.established is True
+        am_scans = [r for r in scans if r == (0.5e6, 1.7e6)]
+        assert len(am_scans) == MAX_CONSECUTIVE_SCAN_ERRORS  # not scanned once failed
+        failed = [n for n in capture.sent if n.title == "Watch Range Failed"]
+        assert len(failed) == 1
+        assert "0.500-1.700 MHz" in failed[0].message
+        assert any(n.title == "Baseline Established" for n in capture.sent)
+
+    def test_scan_errors_must_be_consecutive_to_fail_a_range(self) -> None:
+        """Test a good scan resets the error count."""
+        from adws.adw_modules.baseline import RangeBaselines
+
+        baselines = RangeBaselines(ranges=[FM_RANGE], max_consecutive_errors=3)
+        assert not baselines.record_scan_error(*FM_RANGE)
+        assert not baselines.record_scan_error(*FM_RANGE)
+        baselines.record_scan_success(*FM_RANGE)
+        assert not baselines.record_scan_error(*FM_RANGE)
+        assert not baselines.record_scan_error(*FM_RANGE)
+        assert baselines.record_scan_error(*FM_RANGE)  # third in a row
+        assert not baselines.record_scan_error(*FM_RANGE)  # reported once
+        assert baselines.active_ranges == []
+        assert baselines.established is False
+
+    def test_established_and_scan_count_ignore_ranges_outside_the_watch(self) -> None:
+        """Test a stray range's baseline does not count towards the watch's."""
+        from adws.adw_modules.baseline import RangeBaselines
+
+        baselines = RangeBaselines(ranges=[FM_RANGE], min_scans_required=2)
+        for _ in range(2):
+            baselines.add_scan(_scan(FM_RANGE, (101.9e6, -20)))
+        baselines.add_scan(_scan(AIR_RANGE, (125.0e6, -40)))  # not one of the watch's ranges
+
+        assert baselines.established is True
+        assert baselines.scan_count == 2
+        assert baselines.get_baseline_signals() == baselines.for_range(
+            *FM_RANGE
+        ).get_baseline_signals()
+        assert [r["start_hz"] for r in baselines.to_dict()["ranges"]] == [FM_RANGE[0]]
+
+    def test_from_dict_drops_ranges_the_watch_no_longer_scans(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Test saved baselines of removed ranges are dropped and logged."""
+        from adws.adw_modules.baseline import RangeBaselines
+
+        saved = RangeBaselines(ranges=[FM_RANGE, AIR_RANGE], min_scans_required=1)
+        saved.add_scan(_scan(FM_RANGE, (101.9e6, -20)))
+        saved.add_scan(_scan(AIR_RANGE, (125.0e6, -40)))
+
+        with caplog.at_level("WARNING"):
+            restored = RangeBaselines.from_dict(
+                saved.to_dict(), ranges=[FM_RANGE], min_scans_required=1
+            )
+
+        assert set(restored.baselines) == {FM_RANGE}
+        assert restored.established is True
+        assert "118.000-137.000 MHz" in caplog.text
+
+    def test_legacy_single_baseline_is_kept_for_a_one_range_watch(self) -> None:
+        """Test an old single baseline is that range's baseline when there is one range."""
+        from adws.adw_modules.baseline import RangeBaselines, SpectrumBaseline
+
+        legacy = SpectrumBaseline(min_scans_required=2)
+        for _ in range(2):
+            legacy.add_scan(_scan(FM_RANGE, (101.9e6, -20)))
+
+        restored = RangeBaselines.from_dict(
+            legacy.to_dict(), ranges=[FM_RANGE], min_scans_required=2
+        )
+
+        assert restored.established is True
+        assert restored.scan_count == 2
+        assert len(restored.for_range(*FM_RANGE).signals) == 1
+
+    @pytest.mark.asyncio
+    async def test_loaded_state_reports_the_restored_baseline(self, tmp_path: Path) -> None:
+        """Test baseline_established follows the restored baseline, not the saved flag."""
+        from adws.adw_modules.baseline import SpectrumBaseline
+        from adws.adw_spectrum_watch import SpectrumWatch
+
+        watch = self._two_band_watch(tmp_path)
+        await watch._save_state()
+        state_file = tmp_path / "state" / f"{watch.config.watch_id}.json"
+        data = json.loads(state_file.read_text())
+        legacy = SpectrumBaseline(min_scans_required=1)
+        legacy.add_scan(_scan(FM_RANGE, (101.9e6, -20)))
+        data["baseline"] = legacy.to_dict()  # old mixed format, discarded on a two-band watch
+        data["state"]["baseline_established"] = True
+        state_file.write_text(json.dumps(data))
+
+        loaded = await SpectrumWatch.load_state(
+            watch.config.watch_id, state_dir=tmp_path / "state"
+        )
+
+        assert loaded is not None
+        assert loaded.baseline.established is False
+        assert loaded.state.baseline_established is False
+        assert loaded.get_status()["baseline_established"] is False
 
 
 class _CaptureBackend:
