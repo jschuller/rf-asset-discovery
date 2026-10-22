@@ -917,7 +917,7 @@ def spectrum_watch() -> None:
         "--baseline-scans",
         type=int,
         default=12,
-        help="Number of baseline scans (default: 12)",
+        help="Number of baseline scans of each frequency range (default: 12)",
     )
     parser.add_argument(
         "-v",

@@ -13,7 +13,7 @@ import pytest
 if TYPE_CHECKING:
     from adws.adw_modules.baseline import SpectrumBaseline
     from adws.adw_modules.notifier import MultiBackend, Notification
-    from adws.adw_modules.watch_config import WatchConfig
+    from adws.adw_modules.watch_config import Alert, AlertCondition, WatchConfig
     from adws.adw_spectrum_watch import SpectrumWatch
     from rf_asset_discovery.apps.scanner import ScanResult
 
@@ -691,6 +691,156 @@ class TestSignalLoss:
         assert len(alerts) == 1
         assert alerts[0].condition.condition_type == "signal_loss"
         assert "101.9" in alerts[0].message
+
+
+FM_RANGE = (87.5e6, 108e6)
+AIR_RANGE = (118e6, 137e6)
+
+
+def _scan(rng: tuple[float, float], *peaks: tuple[float, float]) -> ScanResult:
+    """A ScanResult over rng with a peak at each (frequency_hz, power_db)."""
+    from rf_asset_discovery.apps.scanner import ScanResult, SignalPeak
+
+    return ScanResult(
+        start_freq_hz=rng[0],
+        end_freq_hz=rng[1],
+        step_hz=200e3,
+        peaks=[SignalPeak(frequency_hz=f, power_db=p) for f, p in peaks],
+        noise_floor_db=-60,
+        scan_time_seconds=1.0,
+    )
+
+
+class TestRangeBaselines:
+    """Test that a multi-band watch keeps one baseline per scanned range."""
+
+    def _two_band_watch(
+        self, tmp_path: Path, *conditions: AlertCondition, baseline_scans: int = 3
+    ) -> SpectrumWatch:
+        from adws.adw_modules.notifier import MultiBackend
+        from adws.adw_modules.watch_config import FrequencyBand, WatchConfig
+
+        config = WatchConfig(
+            name="two-band",
+            bands=[FrequencyBand.FM_BROADCAST, FrequencyBand.AIRCRAFT_VHF],
+            baseline_scans=baseline_scans,
+            alert_conditions=list(conditions),
+        )
+        assert config.get_frequency_ranges() == [FM_RANGE, AIR_RANGE]
+        watch = _make_watch(tmp_path, config, notifier=MultiBackend([]))
+        watch.state.status = "baseline"  # as start() sets it
+        return watch
+
+    @pytest.mark.asyncio
+    async def test_every_range_needs_its_own_baseline_scans(self, tmp_path: Path) -> None:
+        """Test the watch starts only when each range has baseline_scans scans."""
+        watch = self._two_band_watch(tmp_path)
+        fm = _scan(FM_RANGE, (101.9e6, -20))
+        air = _scan(AIR_RANGE, (125.0e6, -40))
+
+        for result in (fm, air, fm, air, fm):
+            await watch._process_baseline_scan(result)
+        assert watch.state.status == "baseline"  # aircraft band has 2 of 3 scans
+        assert watch.baseline.scan_count == 2
+
+        await watch._process_baseline_scan(air)
+        assert watch.state.status == "watching"
+        assert watch.baseline.scan_count == 3
+
+    @pytest.mark.asyncio
+    async def test_band_activity_compares_each_range_with_its_own_history(
+        self, tmp_path: Path
+    ) -> None:
+        """Test a quiet band at its usual level is not compared with a loud band."""
+        from adws.adw_modules.watch_config import AlertCondition
+
+        watch = self._two_band_watch(
+            tmp_path,
+            AlertCondition(
+                condition_type="band_activity",
+                activity_change_percent=50,
+                cooldown_seconds=0,
+            ),
+        )
+        fm = _scan(FM_RANGE, (101.9e6, -10), (93.9e6, -12))  # strong broadcast
+        air = _scan(AIR_RANGE, (125.0e6, -45))  # one weak carrier
+        for _ in range(3):
+            await watch._process_baseline_scan(fm)
+            await watch._process_baseline_scan(air)
+        assert watch.state.status == "watching"
+
+        assert await watch._check_alerts(fm) == []
+        assert await watch._check_alerts(air) == []
+
+        alerts = await watch._check_alerts(_scan(AIR_RANGE, (125.0e6, -30)))
+        assert len(alerts) == 1
+        assert alerts[0].frequency_hz == AIR_RANGE[0]
+        assert "increased" in alerts[0].message
+
+    @pytest.mark.asyncio
+    async def test_new_signal_is_judged_against_its_own_range(self, tmp_path: Path) -> None:
+        """Test a range still in its baseline learns signals instead of alerting on them."""
+        from adws.adw_modules.watch_config import AlertCondition
+
+        watch = self._two_band_watch(
+            tmp_path, AlertCondition(condition_type="new_signal", cooldown_seconds=0)
+        )
+
+        async def feed(result: ScanResult) -> list[Alert]:
+            """One pass of the scan loop's per-range step."""
+            if watch.state.status == "baseline":
+                await watch._process_baseline_scan(result)
+                return []
+            return await watch._check_alerts(result)
+
+        fm = _scan(FM_RANGE, (101.9e6, -20))
+        air = _scan(AIR_RANGE, (125.0e6, -40))
+        air_busy = _scan(AIR_RANGE, (125.0e6, -40), (127.3e6, -35))
+        # The aircraft band's second baseline scan is the 4th scan overall,
+        # after 3 scans in total (the old shared count) had already been made
+        for result in (fm, air, fm, air_busy, fm, air):
+            assert await feed(result) == []
+        assert watch.state.status == "watching"
+
+        assert await feed(air_busy) == []  # 127.3 MHz was learned in the baseline
+        alerts = await feed(_scan(AIR_RANGE, (125.0e6, -40), (129.0e6, -35)))
+        assert [round(a.frequency_hz) for a in alerts] == [129_000_000]
+        assert len(watch.baseline.for_range(*FM_RANGE).signals) == 1
+        assert len(watch.baseline.for_range(*AIR_RANGE).signals) == 2
+
+    @pytest.mark.asyncio
+    async def test_state_round_trips_per_range(self, tmp_path: Path) -> None:
+        """Test saved state restores each range's baseline separately."""
+        from adws.adw_spectrum_watch import SpectrumWatch
+
+        watch = self._two_band_watch(tmp_path)
+        for _ in range(3):
+            await watch._process_baseline_scan(_scan(FM_RANGE, (101.9e6, -20)))
+            await watch._process_baseline_scan(_scan(AIR_RANGE, (125.0e6, -40)))
+        await watch._save_state()
+
+        loaded = await SpectrumWatch.load_state(
+            watch.config.watch_id, state_dir=tmp_path / "state"
+        )
+        assert loaded is not None
+        assert loaded.baseline.established is True
+        assert set(loaded.baseline.baselines) == {FM_RANGE, AIR_RANGE}
+        assert len(loaded.baseline.for_range(*AIR_RANGE).signals) == 1
+
+    def test_legacy_single_baseline_state_is_rebuilt(self) -> None:
+        """Test an old mixed-range baseline is discarded, not reused for every range."""
+        from adws.adw_modules.baseline import RangeBaselines, SpectrumBaseline
+
+        legacy = SpectrumBaseline(min_scans_required=1)
+        legacy.add_scan(_scan(FM_RANGE, (101.9e6, -20)))
+
+        restored = RangeBaselines.from_dict(
+            legacy.to_dict(), ranges=[FM_RANGE, AIR_RANGE], min_scans_required=3
+        )
+
+        assert restored.established is False
+        assert set(restored.baselines) == {FM_RANGE, AIR_RANGE}
+        assert all(not b.signals for b in restored.baselines.values())
 
 
 class _CaptureBackend:

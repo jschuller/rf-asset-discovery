@@ -426,3 +426,118 @@ class SpectrumBaseline:
         self.total_power_history.clear()
         self.scan_count = 0
         self.established = False
+
+
+FrequencyRange = tuple[float, float]
+
+
+@dataclass
+class RangeBaselines:
+    """One SpectrumBaseline per scanned frequency range.
+
+    A multi-band watch scans several ranges in turn. Sharing one baseline
+    between them would count every range's scan towards the same
+    min_scans_required and compare one range's power with the average over
+    all ranges. Here each ScanResult goes to the baseline of the range it
+    covers, and the set counts as established only once every expected range
+    has had min_scans_required scans of its own.
+
+    Example:
+        >>> baselines = RangeBaselines(ranges=[(88e6, 108e6), (118e6, 137e6)])
+        >>> baselines.add_scan(result)  # routed by result's start/end frequency
+        >>> baselines.for_result(result).is_new_signal(peak)
+    """
+
+    ranges: list[FrequencyRange] = field(default_factory=list)
+    tolerance_hz: float = 50000
+    min_scans_required: int = 12
+    power_deviation_threshold_db: float = 6.0
+    miss_threshold: int = 3
+    baselines: dict[FrequencyRange, SpectrumBaseline] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        for start_hz, end_hz in self.ranges:
+            self.for_range(start_hz, end_hz)
+
+    def for_range(self, start_hz: float, end_hz: float) -> SpectrumBaseline:
+        """The baseline of a range, created empty on first use."""
+        key = (float(start_hz), float(end_hz))
+        if key not in self.baselines:
+            self.baselines[key] = SpectrumBaseline(
+                tolerance_hz=self.tolerance_hz,
+                min_scans_required=self.min_scans_required,
+                power_deviation_threshold_db=self.power_deviation_threshold_db,
+                miss_threshold=self.miss_threshold,
+            )
+        return self.baselines[key]
+
+    def for_result(self, result: ScanResult) -> SpectrumBaseline:
+        """The baseline of the range a scan covered."""
+        return self.for_range(result.start_freq_hz, result.end_freq_hz)
+
+    def add_scan(self, result: ScanResult) -> None:
+        """Add a baseline-phase scan to its range's baseline."""
+        self.for_result(result).add_scan(result)
+
+    @property
+    def established(self) -> bool:
+        """Whether every range's baseline is established."""
+        return bool(self.baselines) and all(
+            b.established for b in self.baselines.values()
+        )
+
+    @property
+    def scan_count(self) -> int:
+        """Baseline scans completed by every range (the slowest range's count)."""
+        if not self.baselines:
+            return 0
+        return min(b.scan_count for b in self.baselines.values())
+
+    def get_baseline_signals(self) -> list[tuple[float, float]]:
+        """Stable signals of all ranges, as (frequency_hz, average_power_db)."""
+        return [
+            sig for b in self.baselines.values() for sig in b.get_baseline_signals()
+        ]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize every range's baseline for persistence."""
+        return {
+            "ranges": [
+                {"start_hz": start, "end_hz": end, "baseline": b.to_dict()}
+                for (start, end), b in self.baselines.items()
+            ]
+        }
+
+    @classmethod
+    def from_dict(
+        cls,
+        data: dict[str, Any],
+        ranges: list[FrequencyRange],
+        min_scans_required: int = 12,
+    ) -> RangeBaselines:
+        """Restore per-range baselines saved by to_dict.
+
+        State saved by older versions holds a single baseline mixed across all
+        ranges. It cannot be split by range, so it is discarded and the
+        baseline is established again.
+
+        Args:
+            data: Dictionary from to_dict (or an older single-baseline dict).
+            ranges: The ranges the watch scans.
+            min_scans_required: Baseline scans each range needs.
+
+        Returns:
+            The restored RangeBaselines.
+        """
+        restored = cls(min_scans_required=min_scans_required)
+        if "ranges" not in data:
+            logger.warning(
+                "Saved baseline is not per range; establishing a new baseline"
+            )
+        for entry in data.get("ranges", []):
+            key = (float(entry["start_hz"]), float(entry["end_hz"]))
+            restored.baselines[key] = SpectrumBaseline.from_dict(entry["baseline"])
+        restored.ranges = list(ranges)
+        for start_hz, end_hz in ranges:
+            restored.for_range(start_hz, end_hz)
+        return restored

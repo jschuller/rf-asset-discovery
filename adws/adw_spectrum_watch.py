@@ -20,7 +20,7 @@ from typing import Any
 
 from rf_asset_discovery.apps.scanner import ScanResult, SignalPeak, SpectrumScanner
 
-from .adw_modules.baseline import SpectrumBaseline
+from .adw_modules.baseline import RangeBaselines
 from .adw_modules.notifier import (
     MultiBackend,
     Notification,
@@ -85,7 +85,10 @@ class SpectrumWatch:
         """
         self.config = config
         self.state = WatchState(config=config)
-        self.baseline = SpectrumBaseline(
+        # One baseline per scanned range, so bands do not share scan counts,
+        # signals or power history
+        self.baseline = RangeBaselines(
+            ranges=config.get_frequency_ranges(),
             min_scans_required=config.baseline_scans,
         )
 
@@ -316,9 +319,11 @@ class SpectrumWatch:
 
         # Log progress
         logger.info(
-            "Baseline scan %d/%d: %d signals",
-            self.baseline.scan_count,
+            "Baseline scan %d/%d of %.3f-%.3f MHz: %d signals",
+            self.baseline.for_result(result).scan_count,
             self.config.baseline_scans,
+            result.start_freq_hz / 1e6,
+            result.end_freq_hz / 1e6,
             len(result.peaks),
         )
 
@@ -361,7 +366,7 @@ class SpectrumWatch:
         alerts: list[Alert] = []
 
         # Track signal presence once per scan, whatever the cooldowns
-        self.baseline.update_presence(result)
+        self.baseline.for_result(result).update_presence(result)
 
         for condition in self.config.alert_conditions:
             # Check cooldown
@@ -413,8 +418,9 @@ class SpectrumWatch:
     def _check_new_signals(
         self, condition: AlertCondition, result: ScanResult
     ) -> list[Alert]:
-        """Check for new signals not in baseline."""
+        """Check for new signals not in the scanned range's baseline."""
         alerts = []
+        baseline = self.baseline.for_result(result)
 
         for peak in result.peaks:
             # Skip if below threshold
@@ -430,7 +436,7 @@ class SpectrumWatch:
                     continue
 
             # Check if new
-            if self.baseline.is_new_signal(peak):
+            if baseline.is_new_signal(peak):
                 freq_mhz = peak.frequency_hz / 1e6
                 notable = lookup_notable(peak.frequency_hz)
 
@@ -485,7 +491,8 @@ class SpectrumWatch:
         if condition.activity_change_percent is None:
             return None
 
-        change = self.baseline.get_activity_change(result)
+        # Compared with this range's own power history, not other bands'
+        change = self.baseline.for_result(result).get_activity_change(result)
 
         if abs(change) > condition.activity_change_percent:
             direction = "increased" if change > 0 else "decreased"
@@ -508,8 +515,9 @@ class SpectrumWatch:
     ) -> list[Alert]:
         """Check for missing baseline signals."""
         alerts = []
+        baseline = self.baseline.for_result(result)
 
-        missing = self.baseline.get_missing_signals(result)
+        missing = baseline.get_missing_signals(result)
 
         for freq_hz, last_power in missing:
             # Check if monitoring specific frequency
@@ -537,7 +545,7 @@ class SpectrumWatch:
                 )
             )
             # One alert per loss: quiet until the signal returns and is lost again
-            self.baseline.mark_loss_reported(freq_hz)
+            baseline.mark_loss_reported(freq_hz)
 
         return alerts
 
@@ -639,7 +647,11 @@ class SpectrumWatch:
             watch = cls(config, state_dir=state_dir)
 
             # Restore baseline
-            watch.baseline = SpectrumBaseline.from_dict(data["baseline"])
+            watch.baseline = RangeBaselines.from_dict(
+                data["baseline"],
+                ranges=config.get_frequency_ranges(),
+                min_scans_required=config.baseline_scans,
+            )
 
             # Restore state
             state_data = data["state"]

@@ -32,6 +32,10 @@ uv run rfad-watch --freq 121.5
 - `signal_loss` - Expected signal missing
 - `band_activity` - Activity level change
 
+Each scanned range keeps its own baseline: a multi-band watch starts alerting
+only after every range has had its baseline scans (`--baseline-scans`, default 12),
+and each range is compared only with its own history.
+
 ## Environment
 ```bash
 export DYLD_LIBRARY_PATH=/opt/homebrew/lib
