@@ -1,0 +1,16 @@
+# Dependabot version updates (homelab-governance supply-chain baseline, 2026-10-22). Every update waits out a 7-day cooldown
+# (14 days for a semver-major bump where the ecosystem supports it). github-actions keeps the SHA pins and "# vX.Y.Z" comments
+# current. One grouped pull request per ecosystem per run, majors included; merging stays the owner's.
+# pip reads pyproject.toml (uv.lock is not committed; CI resolves fresh within [tool.uv] exclude-newer = "1 week").
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: monthly }
+    cooldown: { default-days: 7 }
+    groups: { github-actions: { patterns: ["*"] } }
+  - package-ecosystem: pip
+    directory: /
+    schedule: { interval: monthly }
+    cooldown: { default-days: 7, semver-major-days: 14 }
+    groups: { pip: { patterns: ["*"] } }
