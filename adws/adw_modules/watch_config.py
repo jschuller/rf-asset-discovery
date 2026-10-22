@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
@@ -48,41 +49,91 @@ BAND_RANGES: dict[FrequencyBand, tuple[float, float]] = {
     FrequencyBand.ADSB: (1090.0e6, 1090.0e6),
 }
 
-# Common frequencies of interest
-NOTABLE_FREQUENCIES: dict[float, str] = {
-    121.5e6: "Aircraft Emergency",
-    156.8e6: "Marine Channel 16 (Distress)",
-    162.55e6: "NOAA Weather",
-    146.52e6: "2m FM Calling",
-    446.0e6: "70cm FM Calling",
-}
+@dataclass(frozen=True)
+class NotableFrequency:
+    """A channel, or a band of channels, worth naming in alerts.
+
+    Attributes:
+        name: Label used in alert messages.
+        start_hz: Lowest frequency (the channel centre for a single channel).
+        end_hz: Highest frequency (equal to start_hz for a single channel).
+        emergency: Alerts here go out URGENT.
+    """
+
+    name: str
+    start_hz: float
+    end_hz: float
+    emergency: bool = False
+
+    @classmethod
+    def channel(cls, frequency_hz: float, name: str, emergency: bool = False) -> NotableFrequency:
+        return cls(name=name, start_hz=frequency_hz, end_hz=frequency_hz, emergency=emergency)
+
+    def distance_hz(self, frequency_hz: float) -> float:
+        """Distance from the channel, or 0 inside the band."""
+        if frequency_hz < self.start_hz:
+            return self.start_hz - frequency_hz
+        if frequency_hz > self.end_hz:
+            return frequency_hz - self.end_hz
+        return 0.0
+
+
+# Common frequencies of interest. Only entries with emergency=True raise URGENT
+# alerts; whether Marine Channel 16 should is still an owner decision.
+NOTABLE_CHANNELS: tuple[NotableFrequency, ...] = (
+    NotableFrequency.channel(121.5e6, "Aircraft Emergency", emergency=True),
+    NotableFrequency.channel(243.0e6, "Military Aviation Emergency (Guard)", emergency=True),
+    NotableFrequency(
+        name="COSPAS-SARSAT Distress Beacons",
+        start_hz=406.0e6,
+        end_hz=406.1e6,
+        emergency=True,
+    ),
+    NotableFrequency.channel(156.8e6, "Marine Channel 16 (Distress)"),
+    NotableFrequency.channel(162.55e6, "NOAA Weather"),
+    NotableFrequency.channel(146.52e6, "2m FM Calling"),
+    NotableFrequency.channel(446.0e6, "70cm FM Calling"),
+)
+
+# Name by (lowest) frequency, for callers that want a plain mapping
+NOTABLE_FREQUENCIES: dict[float, str] = {n.start_hz: n.name for n in NOTABLE_CHANNELS}
 
 # A scan reports a peak at its FFT bin (about 1 kHz wide), not at the channel
 # centre, so a notable frequency matches within half a 25 kHz channel
 NOTABLE_TOLERANCE_HZ: float = 12_500.0
 
 
-def lookup_notable(
+def find_notable(
     frequency_hz: float, tolerance_hz: float = NOTABLE_TOLERANCE_HZ
-) -> str:
-    """Name of the notable frequency nearest to frequency_hz, if within tolerance.
+) -> NotableFrequency | None:
+    """The notable channel or band nearest to frequency_hz, if within tolerance.
 
     Args:
         frequency_hz: Measured frequency in Hz, e.g. a scan peak.
-        tolerance_hz: Largest distance from a notable frequency that still matches.
+        tolerance_hz: Largest distance from a channel (or a band's edge) that
+            still matches.
 
     Returns:
-        The NOTABLE_FREQUENCIES name, or "" if none is within tolerance.
+        The matching NotableFrequency, or None.
     """
-    nearest = min(NOTABLE_FREQUENCIES, key=lambda f: abs(f - frequency_hz))
-    if abs(nearest - frequency_hz) <= tolerance_hz:
-        return NOTABLE_FREQUENCIES[nearest]
-    return ""
+    nearest = min(NOTABLE_CHANNELS, key=lambda n: n.distance_hz(frequency_hz))
+    if nearest.distance_hz(frequency_hz) <= tolerance_hz:
+        return nearest
+    return None
+
+
+def lookup_notable(
+    frequency_hz: float, tolerance_hz: float = NOTABLE_TOLERANCE_HZ
+) -> str:
+    """Name of the notable channel or band at frequency_hz, or "" if none matches."""
+    notable = find_notable(frequency_hz, tolerance_hz)
+    return notable.name if notable else ""
 
 
 def is_emergency_frequency(frequency_hz: float) -> bool:
-    """Whether frequency_hz matches a notable frequency named as an emergency channel."""
-    return "emergency" in lookup_notable(frequency_hz).lower()
+    """Whether frequency_hz matches a notable entry flagged as an emergency channel."""
+    notable = find_notable(frequency_hz)
+    return notable is not None and notable.emergency
 
 
 class AlertCondition(BaseModel):

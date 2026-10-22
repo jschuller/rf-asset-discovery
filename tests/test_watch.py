@@ -1047,6 +1047,45 @@ class TestNotableFrequencies:
         assert lookup_notable(121.525e6) == ""
         assert lookup_notable(100.0e6) == ""
 
+    @pytest.mark.parametrize("freq_hz", [243.0e6, 242.998e6, 243.0105e6])
+    def test_243_guard_is_an_emergency(self, freq_hz: float) -> None:
+        """Test the military aviation guard channel matches within tolerance."""
+        from adws.adw_modules.watch_config import is_emergency_frequency, lookup_notable
+
+        assert is_emergency_frequency(freq_hz)
+        assert lookup_notable(freq_hz) == "Military Aviation Emergency (Guard)"
+
+    @pytest.mark.parametrize("freq_hz", [406.0e6, 406.05e6, 406.1e6, 406.11e6])
+    def test_406_beacon_band_is_an_emergency(self, freq_hz: float) -> None:
+        """Test the whole 406.0-406.1 MHz beacon band matches, not just one point."""
+        from adws.adw_modules.watch_config import is_emergency_frequency, lookup_notable
+
+        assert is_emergency_frequency(freq_hz)
+        assert lookup_notable(freq_hz) == "COSPAS-SARSAT Distress Beacons"
+
+    @pytest.mark.parametrize("freq_hz", [243.025e6, 242.975e6, 405.98e6, 406.125e6, 121.525e6])
+    def test_near_misses_are_not_emergencies(self, freq_hz: float) -> None:
+        """Test the neighbouring channels of emergency frequencies are not urgent."""
+        from adws.adw_modules.watch_config import is_emergency_frequency
+
+        assert not is_emergency_frequency(freq_hz)
+
+    def test_emergency_comes_from_the_flag_not_the_label(self) -> None:
+        """Test urgency is the entry's flag: Marine Channel 16 is named but not urgent."""
+        from adws.adw_modules.watch_config import (
+            NOTABLE_CHANNELS,
+            is_emergency_frequency,
+            lookup_notable,
+        )
+
+        assert lookup_notable(156.8e6) == "Marine Channel 16 (Distress)"
+        assert not is_emergency_frequency(156.8e6)
+        assert {n.name for n in NOTABLE_CHANNELS if n.emergency} == {
+            "Aircraft Emergency",
+            "Military Aviation Emergency (Guard)",
+            "COSPAS-SARSAT Distress Beacons",
+        }
+
     @pytest.mark.asyncio
     async def test_alert_near_121_5_is_urgent(self, tmp_path: Path) -> None:
         """Test a new signal measured at 121.498 MHz goes out URGENT for 121.5 MHz."""
