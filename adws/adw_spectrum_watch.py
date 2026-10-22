@@ -167,6 +167,9 @@ class SpectrumWatch:
             )
         )
 
+        # A watch restored with every range's baseline goes straight to watching
+        await self._update_phase()
+
         # Start scan loop
         self._task = asyncio.create_task(self._scan_loop())
 
@@ -325,7 +328,10 @@ class SpectrumWatch:
             Alerts to send (none while the range is baselining).
         """
         if self.baseline.is_range_established(result.start_freq_hz, result.end_freq_hz):
-            return await self._check_alerts(result)
+            alerts = await self._check_alerts(result)
+            # A restored or recovered watch may be fully established already
+            await self._update_phase()
+            return alerts
         await self._process_baseline_scan(result)
         return []
 

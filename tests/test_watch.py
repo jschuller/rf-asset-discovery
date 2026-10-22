@@ -1012,6 +1012,66 @@ class TestRangeBaselines:
         assert loaded.state.baseline_established is False
         assert loaded.get_status()["baseline_established"] is False
 
+    @pytest.mark.asyncio
+    async def test_restored_established_watch_goes_back_to_watching(
+        self, tmp_path: Path
+    ) -> None:
+        """Test a watch restored with a complete baseline watches at start and pauses/resumes."""
+        from adws.adw_modules.notifier import MultiBackend
+        from adws.adw_modules.observability import AuditLogger
+        from adws.adw_modules.watch_config import WatchConfig
+        from adws.adw_spectrum_watch import SpectrumWatch
+
+        config = WatchConfig(
+            name="fm", custom_range=FM_RANGE, baseline_scans=2, scan_interval_seconds=0
+        )
+        watch = _make_watch(tmp_path, config, notifier=MultiBackend([]))
+        for _ in range(2):
+            await watch._process_scan(_scan(FM_RANGE, (101.9e6, -20)))
+        await watch._save_state()
+
+        loaded = await SpectrumWatch.load_state(config.watch_id, state_dir=tmp_path / "state")
+        assert loaded is not None
+        capture = _CaptureBackend()
+        loaded.notifier = MultiBackend([capture])
+        loaded.audit_logger = AuditLogger(log_path=tmp_path / "audit2.jsonl")
+
+        class QuietScanner:
+            def scan(self, start_hz: float, end_hz: float, dwell_time_ms: float) -> ScanResult:
+                return _scan((start_hz, end_hz), (101.9e6, -20))
+
+        loaded.scanner = QuietScanner()  # type: ignore[assignment]
+        await loaded.start()
+        assert loaded.get_status()["status"] == "watching"
+        assert any(n.title == "Baseline Established" for n in capture.sent)
+        await asyncio.sleep(0.05)
+        assert loaded.state.status == "watching"
+
+        await loaded.pause()
+        assert loaded.state.status == "paused"
+        await loaded.resume()
+        assert loaded.state.status == "watching"
+        await loaded.stop()
+
+    @pytest.mark.asyncio
+    async def test_established_scan_moves_a_baseline_status_to_watching(
+        self, tmp_path: Path
+    ) -> None:
+        """Test a scan routed to alerts also updates a stale "baseline" status."""
+        from adws.adw_modules.baseline import RangeBaselines, SpectrumBaseline
+        from adws.adw_modules.notifier import MultiBackend
+        from adws.adw_modules.watch_config import WatchConfig
+
+        config = WatchConfig(name="fm", custom_range=FM_RANGE, baseline_scans=1)
+        watch = _make_watch(tmp_path, config, notifier=MultiBackend([]))
+        legacy = SpectrumBaseline(min_scans_required=1)
+        legacy.add_scan(_scan(FM_RANGE, (101.9e6, -20)))
+        watch.baseline = RangeBaselines.from_dict(legacy.to_dict(), ranges=[FM_RANGE])
+        watch.state.status = "baseline"
+
+        assert await watch._process_scan(_scan(FM_RANGE, (101.9e6, -20))) == []
+        assert watch.state.status == "watching"
+
 
 class _CaptureBackend:
     """A notification backend that records what it is sent."""
