@@ -15,6 +15,7 @@ import contextlib
 import json
 import logging
 import signal
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -44,6 +45,64 @@ from .adw_modules.watch_config import (
 )
 
 logger = logging.getLogger(__name__)
+
+# A health problem (a suspended range, the watch in error) is announced at most
+# once per this many seconds; a held-back notice is sent as "still ..." later
+HEALTH_NOTICE_INTERVAL_SECONDS = 3600
+
+# A range (start_hz, end_hz), or "watch" for the watch as a whole
+HealthKey = tuple[float, float] | str
+
+
+class _HealthNotices:
+    """Decides which down/up health notices to send, so the owner's last word is right.
+
+    Per key (a range, or the whole watch): a "down" notice is sent unless one
+    was sent less than HEALTH_NOTICE_INTERVAL_SECONDS ago, in which case it is
+    held back. An "up" notice is sent only if the last notice sent said down.
+    A held-back down is sent as "still down" once the interval has passed and
+    the key is still down, so "up" is never the last word for something broken.
+    """
+
+    def __init__(self, clock: Callable[[], datetime]) -> None:
+        self._clock = clock
+        self._last_sent: dict[HealthKey, str] = {}
+        self._last_down_at: dict[HealthKey, datetime] = {}
+        self._held: set[HealthKey] = set()
+
+    def _recent(self, key: HealthKey) -> bool:
+        last = self._last_down_at.get(key)
+        return (
+            last is not None
+            and (self._clock() - last).total_seconds() < HEALTH_NOTICE_INTERVAL_SECONDS
+        )
+
+    def down(self, key: HealthKey) -> bool:
+        if self._last_sent.get(key) == "down":
+            return False
+        if self._recent(key):
+            self._held.add(key)
+            return False
+        self._sent_down(key)
+        return True
+
+    def up(self, key: HealthKey) -> bool:
+        self._held.discard(key)
+        if self._last_sent.get(key) != "down":
+            return False
+        self._last_sent[key] = "up"
+        return True
+
+    def still_down(self, key: HealthKey) -> bool:
+        if key not in self._held or self._recent(key):
+            return False
+        self._sent_down(key)
+        return True
+
+    def _sent_down(self, key: HealthKey) -> None:
+        self._last_sent[key] = "down"
+        self._last_down_at[key] = self._clock()
+        self._held.discard(key)
 
 
 class SpectrumWatch:
@@ -130,10 +189,9 @@ class SpectrumWatch:
         self._task: asyncio.Task[None] | None = None
         self._alert_cooldowns: dict[str, datetime] = {}
         self._alert_history: list[Alert] = []
-        # Range health notifications: at most one suspended/recovered pair per
-        # range per hour; later pairs go to the log and audit only
-        self._suspend_notified_at: dict[tuple[float, float], datetime] = {}
-        self._quiet_recovery: set[tuple[float, float]] = set()
+        # Range and watch health notifications, rate-limited (see _HealthNotices)
+        self._clock = datetime.now
+        self._health = _HealthNotices(lambda: self._clock())  # tests replace _clock
 
     async def start(self) -> None:
         """Start the spectrum watch.
@@ -247,7 +305,7 @@ class SpectrumWatch:
         """Resume a paused watch."""
         if self.state.status == "paused":
             if not self.baseline.active_ranges:
-                self.state.status = "error"
+                await self._enter_error()
             elif self.baseline.established:
                 self.state.status = "watching"
             else:
@@ -375,18 +433,13 @@ class SpectrumWatch:
             },
         )
         key = (float(start_hz), float(end_hz))
-        if event == "suspended":
-            last = self._suspend_notified_at.get(key)
-            if last is not None and (datetime.now() - last).total_seconds() < 3600:
-                self._quiet_recovery.add(key)
-                return
-            self._suspend_notified_at[key] = datetime.now()
-        elif event == "recovered" and key in self._quiet_recovery:
-            self._quiet_recovery.discard(key)
-            return
+        if event == "suspended" and not self._health.down(key):
+            return  # held back; sent later as "still suspended" if it stays down
+        if event == "recovered" and not self._health.up(key):
+            return  # its suspension was never announced
         await self.notifier.send(
             Notification(
-                title=f"Watch Range {event.title()}",
+                title=f"Watch Range {event.replace('_', ' ').title()}",
                 message=f"{label} {message}",
                 priority=(
                     NotificationPriority.DEFAULT
@@ -412,20 +465,55 @@ class SpectrumWatch:
                 f"to every {self.baseline.max_retry_cycles} if it keeps failing",
                 error,
             )
+        elif self.baseline.is_suspended(start_hz, end_hz) and self._health.still_down(
+            (float(start_hz), float(end_hz))
+        ):
+            await self._range_event(
+                start_hz, end_hz, "still_suspended",
+                f"is still failing ({error}); retries continue", error,
+            )
         await self._after_range_change()
 
     async def _after_range_change(self) -> None:
         """Re-derive the watch's status after a range failed, was suspended or came back."""
         if not self.baseline.active_ranges:
-            if self.state.status not in ("paused", "stopped", "error"):
-                self.state.status = "error"
-                self.state.error = "No frequency range can be scanned; nothing left to watch"
-                logger.error(self.state.error)
+            if self.state.status == "error":
+                if self._health.still_down("watch"):
+                    await self._watch_health_notice("Watch Still In Error", self.state.error)
+            elif self.state.status not in ("paused", "stopped"):
+                await self._enter_error()
             return
         if self.state.status == "error":
             self.state.status = "watching" if self.baseline.established else "baseline"
+            logger.info("Watch left error: a range can be scanned again")
+            if self._health.up("watch"):
+                await self._watch_health_notice(
+                    "Watch Error Cleared", "A frequency range can be scanned again."
+                )
         # The range that dropped out may have been the last one holding back the baseline
         await self._update_phase()
+
+    async def _enter_error(self) -> None:
+        """Set status error (no range can be scanned) and announce it, rate-limited."""
+        self.state.status = "error"
+        self.state.error = "No frequency range can be scanned; nothing left to watch"
+        logger.error(self.state.error)
+        if self._health.down("watch"):
+            await self._watch_health_notice("Watch Error", self.state.error)
+
+    async def _watch_health_notice(self, title: str, message: str | None) -> None:
+        await self.notifier.send(
+            Notification(
+                title=title,
+                message=f"{self.config.name}: {message or ''}",
+                priority=(
+                    NotificationPriority.DEFAULT
+                    if title == "Watch Error Cleared"
+                    else NotificationPriority.HIGH
+                ),
+                tags=["sdr", "watch", "health"],
+            )
+        )
 
     async def _process_baseline_scan(self, result: ScanResult) -> None:
         """Process a scan during baseline establishment.

@@ -38,8 +38,10 @@ own baseline is complete, while other ranges may still be baselining. A range ou
 the RTL-SDR's 24-1766 MHz is reported once at start and never scanned. Any error while
 scanning counts as transient: after 5 in a row the range is suspended and retried
 after 10 cycles, a wait that doubles after each relapse (up to 64 cycles), and it counts
-as recovered after 3 good scans in a row. Suspended/recovered notices are sent at most
-once per range per hour. With no range left to scan, the watch status is `error`.
+as recovered after 3 good scans in a row. With no range left to scan, the watch status
+is `error`, announced on entering and leaving it. A suspension or error is announced at
+most once per hour; one held back is sent later as "still suspended" / "still in error"
+if it has not cleared, so a recovery notice is never the last word for a broken range.
 
 ## Environment
 ```bash

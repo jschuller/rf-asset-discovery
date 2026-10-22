@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -1000,7 +1001,8 @@ class TestRangeBaselines:
         from rf_asset_discovery.core.exceptions import FrequencyError
 
         config = WatchConfig(name="fm", custom_range=FM_RANGE)
-        watch = _make_watch(tmp_path, config, notifier=MultiBackend([_CaptureBackend()]))
+        capture = _CaptureBackend()
+        watch = _make_watch(tmp_path, config, notifier=MultiBackend([capture]))
         watch.state.status = "baseline"
         error = FrequencyError(95.3e6, "LIBUSB_ERROR_NO_DEVICE")
 
@@ -1013,6 +1015,7 @@ class TestRangeBaselines:
         await watch.pause()
         await watch.resume()
         assert watch.state.status == "error"  # nothing to scan yet
+        assert [n.title for n in capture.sent].count("Watch Error") == 1  # not re-sent on resume
 
     @pytest.mark.asyncio
     async def test_transient_errors_suspend_then_recover(self, tmp_path: Path) -> None:
@@ -1048,6 +1051,10 @@ class TestRangeBaselines:
         assert titles.count("Watch Range Suspended") == 1
         assert titles.count("Watch Range Recovered") == 1
         assert "Watch Range Failed" not in titles
+        # the only range suspended: the watch entered error, and left it on the good retry
+        assert titles.count("Watch Error") == 1
+        assert titles.count("Watch Error Cleared") == 1
+        assert titles.index("Watch Error") < titles.index("Watch Error Cleared")
         assert "error" in calls  # nothing left to scan while suspended
         assert watch.state.baseline_established is True
         assert not watch.baseline.is_suspended(*FM_RANGE)
@@ -1254,6 +1261,69 @@ class TestRangeBaselines:
         titles = [n.title for n in capture.sent]
         health = [t for t in titles if t in ("Watch Range Suspended", "Watch Range Recovered")]
         assert 1 <= len(health) <= 2  # one suspended/recovered pair per range per hour
+        errors = [t for t in titles if t in ("Watch Error", "Watch Error Cleared")]
+        assert 1 <= len(errors) <= 2  # likewise for the watch entering and leaving error
+
+    @pytest.mark.asyncio
+    async def test_held_back_suspension_is_sent_later_as_still_suspended(
+        self, tmp_path: Path
+    ) -> None:
+        """Test 5 bad, 3 good, then bad forever never leaves "Recovered" as the last word."""
+        from datetime import datetime, timedelta
+
+        from adws.adw_modules.notifier import MultiBackend
+        from adws.adw_modules.watch_config import WatchConfig
+        from rf_asset_discovery.core.exceptions import USBError
+
+        config = WatchConfig(
+            name="fm", custom_range=FM_RANGE, baseline_scans=2, scan_interval_seconds=0
+        )
+        capture = _CaptureBackend()
+        watch = _make_watch(tmp_path, config, notifier=MultiBackend([capture]))
+        watch.baseline.retry_every_cycles = 1
+        watch.baseline.max_retry_cycles = 2
+        now = [datetime(2026, 10, 21, 12, 0, 0)]
+        watch._clock = lambda: now[0]
+        calls = 0
+
+        class DyingScanner:
+            def scan(self, start_hz: float, end_hz: float, dwell_time_ms: float) -> ScanResult:
+                nonlocal calls
+                calls += 1
+                if calls <= 5 or calls > 8:  # 5 bad, 3 good, then bad forever
+                    raise USBError(-1, "LIBUSB_ERROR_NO_DEVICE")
+                return _scan((start_hz, end_hz), (101.9e6, -20))
+
+        def titles() -> list[str]:
+            return [n.title for n in capture.sent if n.title.startswith("Watch") and
+                    n.title not in ("Watch Started: fm", "Watch Stopped: fm")]
+
+        async def wait_for(condition: Callable[[], bool]) -> None:
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + 3
+            while not condition() and loop.time() < deadline:
+                await asyncio.sleep(0.001)
+            assert condition()
+
+        watch.scanner = DyingScanner()  # type: ignore[assignment]
+        await watch.start()
+        await wait_for(lambda: calls >= 15 and watch.baseline.is_suspended(*FM_RANGE))
+        # Within the hour the second suspension and second error are held back
+        assert titles() == [
+            "Watch Range Suspended",
+            "Watch Error",
+            "Watch Error Cleared",
+            "Watch Range Recovered",
+        ]
+        assert watch.state.status == "error"
+
+        now[0] += timedelta(seconds=3601)
+        await wait_for(lambda: "Watch Range Still Suspended" in titles())
+        await watch.stop()
+
+        assert titles()[4:] == ["Watch Range Still Suspended", "Watch Still In Error"]
+        range_notices = [t for t in titles() if t.startswith("Watch Range")]
+        assert range_notices[-1] == "Watch Range Still Suspended"
 
 
 class _CaptureBackend:
