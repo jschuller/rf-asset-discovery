@@ -3,7 +3,7 @@ name = "rf-asset-discovery"
 version = "0.1.0"
 description = "RF asset discovery for OT/IoT security monitoring with medallion architecture"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [{name = "RF Asset Discovery Contributors"}]
 keywords = ["sdr", "rtl-sdr", "rf-security", "iot-security", "asset-discovery", "medallion-architecture", "ot-security"]
